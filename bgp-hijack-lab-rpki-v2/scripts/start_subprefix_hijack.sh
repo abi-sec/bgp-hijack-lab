@@ -50,8 +50,16 @@ echo -e "${YELLOW}--- Victim /24 still present ---${RESET}"
 docker exec "$R1" vtysh -c "show bgp ipv4 unicast 13.0.0.0/24"
 
 echo ""
-echo -e "${RED}Key: /25 and /24 coexist in table.${RESET}"
-echo -e "${RED}Traffic to 13.0.0.0-13.0.0.127   → ATTACKER (longer prefix wins)${RESET}"
-echo -e "${RED}Traffic to 13.0.0.128-13.0.0.255 → victim (unaffected)${RESET}"
+
+# Check whether the attacker subprefix is actually present at R1
+if docker exec "$R1" vtysh -c "show bgp ipv4 unicast 13.0.0.0/25" | grep -q "BGP routing table entry"; then
+  echo -e "${RED}Key: /25 and /24 coexist in table.${RESET}"
+  echo -e "${RED}Traffic to 13.0.0.0-13.0.0.127   	→ ATTACKER (longer prefix wins)${RESET}"
+  echo -e "${RED}Traffic to 13.0.0.128-13.0.0.255 	→ victim (unaffected)${RESET}"
+else
+  echo -e "${GREEN}Key: Attacker subprefix 13.0.0.0/25 is NOT present at R1.${RESET}"
+  echo -e "${GREEN}Traffic to entire 13.0.0.0/24 	→ legitimate path via AS200 AS300 (subprefix blocked)${RESET}"
+fi
+
 echo -e "${GREEN}Run scripts/stop_attack.sh to restore${RESET}"
 echo -e "${BOLD}================================================${RESET}"

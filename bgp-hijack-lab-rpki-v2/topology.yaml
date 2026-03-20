@@ -40,8 +40,8 @@ topology:
       image: nlnetlabs/routinator:latest
       binds:
         - configs/rpki/slurm.json:/etc/routinator/slurm.json
-        - configs/rpki/run-routinator.sh:/etc/routinator/run-routinator.sh
-      cmd: sh /etc/routinator/run-routinator.sh
+        - configs/rpki/routinator.conf:/home/routinator/.routinator.conf
+      cmd: server --rtr 0.0.0.0:3323 --http 0.0.0.0:9556 --refresh 300 --retry 300 --expire 7200
 
   links:
     - endpoints: ["r1:eth1", "r2:eth1"]

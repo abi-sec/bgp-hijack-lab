@@ -1,0 +1,716 @@
+        Stealth BGP Hijacks with uRPF Filtering
+Haya Schulmann, Goethe-Universität Frankfurt and National Research Center for
+ Applied Cybersecurity ATHENE; Shujie Zhao, Technische Universität Darmstadt
+                             and Fraunhofer SIT
+          https://www.usenix.org/conference/woot25/presentation/schulmann
+
+
+
+
+      This paper is included in the Proceedings of the
+ 19th USENIX WOOT Conference on Offensive Technologies.
+                     August 11–12, 2025 • Seattle, WA, USA
+                              ISBN 978-1-939133-50-2
+
+
+                       Open access to the Proceedings of the
+              19th USENIX WOOT Conference on Offensive Technologies
+                             is sponsored by USENIX.
+                                Stealth BGP Hijacks with uRPF Filtering
+
+                                             Haya Schulmann1 , Shujie Zhao2
+                                     1 Goethe-Universität Frankfurt and ATHENE
+                               2 Technische Universität Darmstadt and Fraunhofer SIT
+
+
+
+
+                         Abstract                                 1   Introduction
+                                                                     In the early days of the Internet the source address at the
+Unicast Reverse Path Forwarding (uRPF) is the primary and         Internet Protocol (IP) layer header in the received packets was
+the standard Source Address Validation (SAV) mechanism            used to identify the origin. Many network services relied on
+to combat IP spoofing and mitigate Denial-of-Service (DoS)        this source IP address for authentication and access control.
+and other attacks. However, in this study, we reveal a critical   For example, remote login services, such as rsh, rlogin, rexec,
+and previously unexplored vulnerability in uRPF that adver-       trusted predefined IP addresses and allowed access without
+saries can stealthily exploit through Border Gateway Protocol     requiring additional authentication if the request came from a
+(BGP) hijacking. We introduce Stealthy BGP Attack against         recognized address. Similarly network devices implemented
+uRPF (SBA-uRPF), a novel attack vector that leverages prefix      Access Control Lists (ACLs) on routers and firewalls based
+hijacking to manipulate uRPF filtering decisions, resulting       on source IP addresses to restrict access to resources. Even
+in the unintended blocking of legitimate traffic and the facil-   the security mechanisms relied on source IP addresses to filter
+itation of persistent DoS attacks. Due to its hidden nature,      or rate-limit malicious traffic, e.g., in Denial of Service (DoS)
+SBA-uRPF attacks could pose a significant and persistent          attacks.
+security risk.                                                       Attackers quickly realized they could exploit this reliance
+                                                                  on source IP addresses by spoofing (forging) the source ad-
+   Through extensive simulation-based analysis, we demon-
+                                                                  dresses in packets they send. Since IP does not provide in-
+strate that 99.3% of networks are vulnerable to SBA-uRPF un-
+                                                                  herent authentication, attackers could manipulate packets to
+der a full deployment of uRPF, with a potential maximum im-
+                                                                  appear as if they originated from some other origin, e.g., a
+pact affecting over 59,115 networks (76.3%). Unlike conven-
+                                                                  trusted source. This allowed them to bypass authentication
+tional BGP hijacks, which often result in noticeable routing
+                                                                  mechanisms and launch various attacks, e.g., to gain access to
+anomalies, SBA-uRPF remains undetectable to the affected
+                                                                  network services, to launch DoS amplification or reflection or
+networks, making it a particularly dangerous threat. The attack
+                                                                  DNS cache poisoning attacks [15–17, 22, 32, 43]. IP address
+exploits BGP routing loop prevention and customer-preferred
+                                                                  spoofing is a fundamental security concern.
+routing policies to induce widespread traffic blackholing of
+                                                                     To block IP spoofing best practices the networks should ap-
+victim networks. We show that adversaries can also target fun-
+                                                                  ply Source Address Validation (SAV) by enabling ingress and
+damental Internet systems, such as DNS, or Internet services,
+                                                                  egress filtering RFC2827/BCP38 at the network boundaries
+like the web.
+                                                                  to block packets with spoofed source IP addresses [4, 36, 39].
+   Our findings reveal a fundamental weakness in the global          uRPF to block IP spoofing. Unicast Reverse Path For-
+routing ecosystem, where a security mechanism designed to         warding (uRPF) is a standard method for implementing SAV.
+prevent attacks can be subverted and turned into an attack        uRPF leverages BGP routing tables to validate source ad-
+vector. We discuss countermeasures, including improvements        dresses, ensuring that only incoming traffic arriving on the
+to BGP security mechanisms such as Route Origin Valida-           correct interface — one that can be used to send traffic back
+tion (ROV) and BGPsec. We also consider the challenges            to the source — is accepted. In recent years, uRPF has gained
+in mitigating SBA-uRPF in real-world deployments, and the         increasing attention from both research community and in-
+need for more comprehensive approaches, including solutions       dustry professionals and is currently the primary method to
+involving deployment strategies for uRPF.                         implement SAV against IP spoofing [27, 35, 35, 38, 39]. Lead-
+  Our code and datasets are available at https://github.          ing network infrastructure manufacturers, including Cisco,
+com/zsjstart/Stealthy-uRPF-Attack/tree/v1.1.0.                    Huawei, Fortinet, Juniper Networks, and Arista Networks,
+
+
+
+USENIX Association                                           19th USENIX WOOT Conference on Offensive Technologies            129
+support uRPF configuration on their routers and security de-            Contributions. We make the following contributions:
+vices to enhance network security and mitigate IP address
+                                                                        • We propose a novel stealthy BGP attack, we call SBA-
+spoofing. A recent study identified already 53 networks that
+                                                                          uRPF, that exploits prefix hijacks to manipulate uRPF,
+have deployed uRPF [35]. uRPF offers significant advan-
+                                                                          causing it to discard legitimate traffic and resulting in a
+tages over alternative SAV techniques like ACLs, which mo-
+                                                                          DoS.
+tivates its broader deployment. Industry initiatives, such as
+MANRS (Mutually Agreed Norms for Routing Security), also                • We present methodologies for identifying networks vul-
+promote the implementation of uRPF as a key principle of                  nerable to the proposed stealthy BGP attack, along with
+anti-spoofing filtering, securing the global routing system [1].          methods for quantifying the impact.
+With growing support from both academia and industry, uRPF
+is anticipated to see wider adoption.                                   • We perform an analysis of the extent of the networks
+   Unexpected consequences of uRPF. In this work we show                  vulnerable to SBA-uRPF attacks and the impact of the
+for the first time that uRPF can be exploited to launch effective         attacks.
+prefix hijack attacks, we call uRPF assisted hijack. In the             • We discuss potential limitations and countermeasures
+course of the attack, an adversary announces a fraudulent                 for preventing SBA-uRPF.
+route for the victim’s prefix, which propagates to the targeted
+network that enforces uRPF, replacing the legitimate route              • We make our code and datasets public for reproduc-
+received via the same interface. Since the malicious route                tion and future research: https://anonymous.4open.
+includes the AS number of the uRPF-enabled network as the                 science/r/Stealthy-uRPF-Attack-B57F/
+origin in the AS path, it is discarded to prevent a routing loop.      Ethical considerations. We ensure that our research is eth-
+However, this causes the uRPF-enabled network to mistakenly         ical and does not inadvertently cause harm or create risks to
+drop legitimate traffic from the victim network, leading to a       the broader Internet infrastructure. Our primary focus is on
+Denial-of-Service (DoS). Detailed description of this attack        exploring and understanding the negative side-effects of the
+is provided in Section 5. We show that this attack is highly        deployed security mechanism against IP spoofing: uRPF. We
+effective: just a single stealthy BGP hijack is executed against    follow best practices for ethical research in network security
+a specific uRPF-enabled network, impacting not only that            and software security [8, 11, 40]. All tests and evaluations are
+network but also its customers. The prefix hijack remains           performed in controlled environments or on simulated plat-
+unnoticed by these affected networks.                               forms, isolated from live production systems. Our precautions
+   To evaluate the impact of this attack on the Internet, we        prevent any potential disruption to operational networks and
+develop a methodology for identifying vulnerable networks           services.
+and for assessing the impact level of a specific attack. As            Organization. We provide an overview of BGP and prefix
+previously mentioned, the impact of an attack targeting an          hijacks in Section 2. We explain uRPF in Section 3 and the re-
+individual vulnerable network is case-specific. To evaluate         lated work in Section 4. We develop the stealth hijack attacks
+the extent of the vulnerabilities and understand the impact of      in Section 5. The methodologies for identifying networks vul-
+uRPF on prefix hijack at full uRPF deployment, we model a           nerable to our attacks and methodologies for quantifying the
+hypothetical scenario in which uRPF is universally deployed         impact of our attacks are presented in Section 6. We perform
+across the Internet. Under this assumption, we theoretically        simulations on heuristically derived datasets to analyze the
+assess the vulnerability of each uRPF-enabled network to the        impact of the attacks and the scope of the vulnerable networks
+proposed attack and quantify the potential impact of specific       in Section 7. We discuss the impact on critical applications
+attacks.                                                            in Section 8 and show an extension of the attack in Section
+   Our analysis reveals that a substantial majority (99.3%)         9. We review limitations in Section 10. Countermeasures in
+of networks could be vulnerable, with a potential maximum           Section 11 and conclusion in Section 12.
+impact on 59,115 (76.3%) networks. However, these findings
+are derived from a theoretical model rather than real-world         2    Overview of BGP
+uRPF deployments, meaning they represent potential security            Border Gateway Protocol (BGP) [33] is the inter-domain
+risks rather than actual threats.                                   routing system of the Internet. The routers use BGP pack-
+   To avoid harming the reachability of networks in the In-         ets to exchange information about the reachability of pre-
+ternet we evaluate the impact and extent of our attacks on          fixes within their Autonomous Systems (ASes). A BGP
+a simulated environment. Our study provides insights into           route/announcement includes an IP prefix and the AS path to
+the potential security implications of uRPF adoption. These         that prefix, with the origin AS always located at the end of
+findings help point at the need to develop proactive strategies     the path. BGP routers at the border of ASes receive announce-
+to mitigate the vulnerabilities associated with the deployment      ments from their neighbors (providers, customers, or peers).
+of uRPF, paving the way for more resilient and secure inter-        When forwarding a BGP update to the next hop, the router
+domain routing.                                                     prepends its AS number to the AS path.
+
+
+
+130   19th USENIX WOOT Conference on Offensive Technologies                                                   USENIX Association
+   Prefix hijacks with AS path manipulation. Using BGP                                                                                                     BGP
+                                                                                                                AS7
+any router can claim to origin any prefix, even those it does                                                                                              uRPF
+not legitimately own. This can be done by manipulating the                                                                                                 Attacker
+AS path of a prefix, appending or prepending an AS number                                            AS3        AS4              AS6
+                                                                                                                                                           Customer-provider
+to the path. For example, AS1 may originate a route for the                                                                                                Traffic from AS5
+                                                                                                                                       Traffic with a
+prefix 1.2.3.0/24, which is owned by AS2, with an AS path                          (1.2.3.0/24, [AS1])                                 src IP of 1.2.3.1   Route from AS1
+                                                                                                                AS2
+[AS1, ASx], where ASx is an arbitrary AS number. Such                                                                            AS5
+bogus BGP announcements can be exploited by adversaries                                              AS1   (1.2.3.0/24, [AS1])
+
+to redirect traffic through their networks. BGP prefix hijacks                  Figure 1: uRPF filtering packets with a forged source (src) IP
+can be exploited for launching more complex attacks, such as                    address.
+eavesdropping, blackholing, or spam distribution [5, 41, 42].
+   Routing loop prevention. BGP incorporates built-in mech-
+anisms for routing loop prevention. For example, ASes will                      for its prefix 1.2.3.0/24. One route arrives at AS7 via AS3
+discard a BGP announcement if they detect their own AS                          (a provider of AS1), while another reaches AS7 through AS2
+numbers in the AS path, thereby avoiding routing loops. Our                     and AS4 (AS2’s provider). Assuming AS7 prefers a shorter
+attack exploits prefix hijacks with AS path manipulation to                     AS path during route selection, the route through AS3 is
+trigger the routing loop prevention mechanism and interfere                     chosen as the best route for forwarding packets to AS1. In
+with the uRPF decision-making process, leading uRPF to                          strict mode, uRPF accepts a packet only if it arrives on the
+incorrectly allow IP-spoofed packets.                                           same interface used to forward the reply packet back to the
+   Route preference. Upon receiving a BGP update, the                           source. This means that with strict uRPF traffic with a source
+router compares it with the existing route for the same prefix                  IP from AS1 is only expected to reach AS7 via AS3. However,
+and selects the best one for forwarding. Local preference is                    this mode of uRPF may lead to the loss of legitimate traffic in
+a configurable BGP attribute used to control route selection,                   cases of asymmetric routing or multihoming [4]. For example,
+with ASes preferring routes with higher local preference val-                   when AS1 sends a packet to AS7, it may traverse AS2 and
+ues. Due to economic incentives1 , an AS typically prefers                      AS4 if the route through AS3 is unavailable. In this case, AS7
+routes learned from its customers over those learned from                       drops the packet because it arrives on an unexpected interface.
+peers, and routes from peers are preferred over those from                         To address this issue, feasible-path uRPF was developed.
+providers. In most cases, customer routes have higher local                     Unlike strict uRPF, which requires incoming packets to arrive
+preference values. Additionally, an AS tends to prefer routes                   via the best route, feasible-path uRPF allows for the consid-
+with shorter AS paths. Other strategies, such as the Interior                   eration of an alternative route through which the packet can
+Gateway Protocol (IGP) metric, can also be used in route                        also reach its destination. In Figure 1, if AS7 adopts uRPF in
+selection [7].                                                                  feasible-path mode, it permits traffic with a source address
+   Valley-free routing policy. When an AS forwards a BGP                        from AS1 to arrive via either AS3 or AS4. This approach
+route learned from its provider or peer to another provider or                  provides greater flexibility in terms of directionality, mak-
+peer, it creates a "valley" on the AS path [37]. Consequently,                  ing feasible-path uRPF more effective in complex network
+BGP route propagation between ASes should adhere to the                         architectures [35].
+valley-free routing policy, meaning that no valley should ap-                      However, when customers announce different prefixes
+pear on the AS path.                                                            to different transit providers, legitimate packets may still
+3     Blocking Spoofing with uRPF                                               be mistakenly dropped by feasible-path uRPF. To address
+                                                                                this RFC8704 [39] introduced enhanced feasible-path uRPF,
+   Source Address Validation (SAV) is the de facto method
+                                                                                which further extends direction flexibility by considering all
+for preventing IP spoofing-based attacks, as specified in
+                                                                                routes from the same AS origin. For example, in Figure 1, if
+[RFC2827, RFC3704, RFC8704] [4, 36, 39]. Unicast Reverse
+                                                                                AS1 originates a route for 1.2.3.0/24 that passes through
+Path Forwarding (uRPF) is a primary technique for imple-
+                                                                                AS3 to reach AS7, and another route for 1.2.4.0/24 that
+menting SAV at the boundaries of networks. Upon receiving
+                                                                                traverses AS2 and AS4 to reach AS7, enhanced feasible-
+an incoming packet, uRPF verifies that the source address
+                                                                                path uRPF allows AS7 to accept traffic from both subnets,
+is valid based on the BGP forwarding routing table. uRPF
+                                                                                1.2.3.0/24 and 1.2.4.0/24, arriving either through AS3
+operates in three modes: strict uRPF, feasible-path uRPF, and
+                                                                                or AS4. In other words, both interfaces connected to AS3 and
+loose uRPF [39]. We explain uRPF using example network
+                                                                                AS4 are expected to receive traffic from AS1.
+scenarios.
+                                                                                   In contrast, loose uRPF operates in a simpler manner, fil-
+   Figure 1 illustrates an example in which AS7, with uRPF
+                                                                                tering only packets with bogon or unallocated IP addresses.
+enabled, drops ingress packets from AS5 that have a spoofed
+                                                                                RFC8704 [39] and the MANRS guide [27] recommend that
+source address belonging to AS1. AS1 originates BGP routes
+                                                                                network operators of smaller or simpler networks such as
+    1 An AS generates revenue by providing transit services to its customers.   single-homed (stub) ASes employ strict uRPF, while for larger
+
+
+
+USENIX Association                                                         19th USENIX WOOT Conference on Offensive Technologies                                              131
+                                                                                                                                 AS1         AS6                  ASy       (3                       BGP
+                    AS1                AS6      (3
+                                                   .
+                                                                                     BGP                                                                                      .3
+                                                                                                                                                                                .3
+                                                                                                                                                                                  .0
+                                                       3.                                                                                                                           /2
+                                                          3.                                                                                                                           4,            uRPF
+                                                             0   /2
+                                                                      4,             uRPF                                                                                                   [A
+                                                                                                                                                                                              S3
+                                                                         [   AS                                                                                                                 ])   Attacker
+                                                                               3]    Attacker                  AS4                     ASx                  AS2                   AS3
+                                                                                 )                                                                                                                   Customer-Provider
+      AS4                      AS2                       AS3                         Customer-Provider
+                                                                                                                                                                  (3.3.3.0/24,
+                                                                                                                                                                  [AS3])                             Route from AS5
+
+
+
+
+                                                                                                                       7]) 24,
+                                     (3.3.3.0/24,                                                                                            (3.3.3.0/24,
+
+
+
+
+                                                                                                                   [AS .7.0/
+                                     [AS3])                                          Route from AS5                                          [AS5, AS4])                                             Route from AS3
+          7]) 24,
+
+
+
+
+                                                                                                                        7
+                                                                                                                    (7.
+                    (3.3.3.0/24,
+      [AS .7.0/
+
+
+
+
+                                                                                                                                                                                                     Route from AS7
+                    [AS5, AS4])                                                      Route from AS3
+                                                                                                             AS7                                            AS5
+           7
+
+
+
+
+                                                                                                                                                                                                     Traffic from AS3
+       (7.
+
+
+
+
+                                                                                     Route from AS7
+    AS7                        AS5                                                   Traffic from AS3    Figure 3: An example of a stealthy prefix hijack against uRPF-
+                                                                                                         protected networks, where the uRPF-enabled network is not
+Figure 2: An example of a stealthy prefix hijack against uRPF-
+                                                                                                         directly connected to the bridging network.
+protected networks, where the uRPF-enabled network is di-
+rectly connected to the bridging network.
+                                                                                                         trolling the propagation of bogus announcements. However,
+                                                                                                         the lack of standardized specifications for BGP communities
+or more complex networks, feasible-path uRPF is considered
+                                                                                                         may limit the feasibility of SICO.
+to be the optimal choice.
+   Many efforts have been made to measure the deployment of                                                 In addition, BGP hijacks are often crafted to remain invis-
+Source Address Validation (SAV) across the Internet in order                                             ible to public route collectors, evading detection by global
+to evaluate the potential attack surface [6,10,21,23–26,28,35].                                          BGP monitoring systems [29]. The key idea behind these
+   As awareness to attacks with spoofed IP packets is in-                                                hijacks is to manipulate the route selection process of ASes
+creasing, the adoption of uRPF also growth. In this work we                                              peering with route collectors, preventing them from feeding
+identify a novel attack vector which exploits support of uRPF,                                           malicious routes to the collectors. Milolidakis et al. [30] em-
+and explore the impact of this attack. Our attack that exploits                                          ployed various strategies for crafting stealthy hijacks targeting
+the inherent nature of uRPF that validates the source address                                            route collectors, including using the same prefix as the victim
+based on the direction from which the traffic arrives (see more                                          but with a longer AS path, exploiting the route loop preven-
+details in Section 5).                                                                                   tion mechanism, and selectively exporting hijacks to specific
+                                                                                                         neighbors.
+4     Related Work                                                                                          In contrast, our attack leverages BGP hijacking to control
+   A range of stealthy BGP attacks have been proposed in the                                             the filtering behavior of uRPF, which is undetectable to the
+existing literature.                                                                                     affected networks.
+   Adversaries manipulate the AS path of a hijacked route
+                                                                                                         5     Attack Models
+by intentionally appending the correct origin AS at the end
+of the path, making the route appear legitimate. This type of                                               This section introduces a novel stealthy attack that exploits
+prefix hijack is stealthy to current BGP prevention and miti-                                            BGP hijacking to manipulate the uRPF filtering behavior.
+gation systems [18]. The Resource Public Key Infrastructure                                                 The basic idea behind this attack is straightforward. Ad-
+(RPKI) [20], which links prefixes to Autonomous System                                                   versaries initiate a malicious BGP route that outcompetes
+(AS) numbers (ASNs) and their corresponding cryptographic                                                the legitimate route in the route selection process. The bo-
+public keys through Route Origin Authorizations (ROAs),                                                  gus route reaches the targeted network employing uRPF via
+has been standardized as a means of preventing BGP hijacks.                                              the same interface as the legitimate route. However, it is ulti-
+Route Origin Validation (ROV) [19] verifies the validity of the                                          mately discarded after being identified as invalid. As a result,
+origin AS in BGP announcements by comparing it with the                                                  the target network fails to observe the victim prefix on the
+ROAs. However, ROV is blind to the prefix hijack described                                               expected path, causing uRPF to mistakenly reject legitimate
+above as the hijacked route has a valid origin AS, allowing it                                           traffic.
+to bypass the detection.                                                                                    To launch this attack, adversaries exploit the routing policy
+   Morillo et al. [31] introduced a hidden BGP hijack resulting                                          where ASes prefer routes learned from customers over those
+from ROV filtering along the AS path, which impacts the data                                             learned from peers or providers. This ensures that a malicious
+plane (actual traffic flows). To mitigate this hidden hijack,                                            route from a customer is selected as the best export route.
+the authors proposed an approach called ROV++. However,                                                  Additionally, the attacker manipulates the AS path by append-
+when the AS enforcing ROV receives both valid and malicious                                              ing the uRPF network’s AS number to the end, triggering
+routes from the same BGP neighbor, ROV++ blackholes the                                                  the BGP routing loop prevention mechanism in the targeted
+invalid announcement, potentially leading to DDoS attacks.                                               network, which causes the forged route to be discarded.
+   Birge-Lee et al. [7] proposed SICO, a stealthy BGP in-                                                   Figure 2 shows that an attacker within network AS5 origi-
+terception attack that exploits BGP communities—such as                                                  nates a BGP route for the prefix 3.3.3.0/24, which belongs
+LowerPref, NoExportSelect, and NoExportAll—to manipu-                                                    to AS3, and appends AS4 to the end of the AS path, making
+late local route preferences and export behaviors, thereby con-                                          it appear as if the fake route originates from AS4 (see the red
+
+
+
+132       19th USENIX WOOT Conference on Offensive Technologies                                                                                                                          USENIX Association
+arrow). Assume that AS5 is a customer of AS2, while AS3 is             Definition: Adversaries originate a forged BGP announce-
+either a provider or peer of AS2 (as illustrated in the figure,     ment, falsely claiming the uRPF-enabled network as the ori-
+AS3 is a provider of AS2). In our work, we refer to AS2 as          gin, thereby triggering routing loop prevention. As a result,
+a bridging network. As mentioned earlier, due to economic           legitimate traffic originating from a victim network (e.g., AS3)
+incentives, routes learned from a customer are preferred over       and destined for uRPF-protected networks is dropped, causing
+those learned from a provider or peer. Consequently, when           a denial-of-service (DoS). The prefix hijack in this attack is
+AS2 receives two routes for the prefix 3.3.3.0/24—one               concealed from uRPF-protected networks. We thus refer to
+from AS5 and another from AS3—it selects the route from             this attack as a stealthy BGP attack abusing uRPF, denoted
+AS5 and propagates it to AS4.                                       as SBA-uRPF.
+   However, AS4 detects its own AS number in the AS path               Extension model: Figure 3 illustrates another example of
+and rejects the malicious route to prevent a routing loop. AS4,     stealthy prefix hijacks targeting uRPF-protected networks.
+which deploys uRPF to prevent source IP spoofing, then only         Unlike the scenario shown in Figure 2, this example intro-
+observes the legitimate route for the prefix 3.3.3.0/24 ar-         duces an extended attack model where the targeted uRPF
+riving via AS1 (see the green arrow). This means that packets       network (AS4) is connected to the bridging network (AS2)
+with source IP addresses within the prefix 3.3.3.0/24 are           through one or more intermediary networks (such as ASx).
+only accepted on the interface connected to AS1.                    This extended model potentially creates additional opportuni-
+   Meanwhile, AS7, as a customer of AS4, announces a route          ties for attackers to carry out this stealthy BGP hijack, as it
+for its prefix 7.7.7.0/24 (see the orange arrow). This an-          removes the requirement for the targeted uRPF network to be
+nouncement is first learned by AS4 and then AS4 propagates          directly connected to the bridging network.
+it via two AS paths: [AS2] and [AS1, AS6] to AS3. Recall               Requirements: As outlined above, certain requirements
+that AS3 is either a provider or peer of AS2 (in the figure,        must be met to execute this attack. These are summarized
+AS3 is a provider). Under the valley-free BGP routing policy,       below:
+AS4 must be a customer of AS2 so that the route learned from
+AS4 can be propagated by AS2 to AS3.                                   • The targeted network (e.g., AS4) applies uRPF to incom-
+   In this scenario, clients within AS7 send requests to a server        ing packets.
+within AS3. AS3 responds with packets using source IP ad-
+dresses from the prefix 3.3.3.0/24, destined for the network
+                                                                       • The attacker’s network (e.g., AS5) is a customer of the
+7.7.7.0/24. Based on the shortest AS path criterion in the
+                                                                         bridging network (e.g., AS2) while the victim network
+best route selection process, AS3 selects the route that passes
+                                                                         (e.g., AS3) is the bridging network’s provider or peer.
+through AS2 and then to AS4. Consequently, this traffic is
+expected to flow through AS2 to AS4 before reaching its
+destination AS7 (see the blue arrow). However, due to the              • The targeted uRPF network must be within the customer
+enforcement of the uRPF, AS4 blocks traffic sourced from the             cone of the bridging network, either as a direct customer,
+prefix 3.3.3.0/24 when it arrives via AS2, resulting in the              as shown in Figure 2, or as an indirect customer, as illus-
+traffic being dropped. This leads to a denial-of-service (DoS).          trated in Figure 3.
+   Similar to AS7, all other customer networks of
+AS4—whether directly connected or connected indi-                      • The best route between the targeted uRPF network and
+rectly through one or more intermediary customer networks,               the victim network must pass through the bridging net-
+collectively known as AS4’s customer cone—could also be                  work, as seen in the paths [AS4, AS2, AS3] in Figure 2
+vulnerable to this DoS attack. Notably, AS4’s provider or                and [AS4, ASx, AS2, AS3] in Figure 3.
+peer networks will not be affected, as BGP announcements
+originating from these networks cannot propagate to AS2 and            Impact: SBA-uRPF exploits the routing policy used for
+then to AS3, in accordance with the valley-free BGP routing         loop prevention within an AS. It is specifically tailored to
+policy.                                                             each uRPF-enabled network. As a result, the impact of this
+   We use prefix hijacks instead of subprefix hijacks, as the       attack is limited to the targeted network employing uRPF and
+latter cannot be leveraged to execute this stealthy attack. Even    its associated customer cone.
+after dropping the malicious subprefix route, AS4 can still            Applicability: Recall that strict uRPF, feasible-path uRPF,
+observe the legitimate route for the victim prefix reaching it      and enhanced feasible-path uRPF operate based on the arrival
+via AS2.                                                            direction of incoming traffic. As a result, SBA-uRPF attacks
+   uRPF-protected networks: We define uRPF-enabled net-             can target all three uRPF modes. However, loose uRPF filters
+works and all downstream networks within their customer             packets with bogon or unallocated IP addresses, regardless of
+cones as uRPF-protected networks (such as AS4 and AS7).             directionality. Given this, loose uRPF can not be abused by
+All of these uRPF-protected networks could be compromised           the proposed attack. Our study thus excludes the analysis of
+by this stealthy attack.                                            this mode.
+
+
+
+USENIX Association                                             19th USENIX WOOT Conference on Offensive Technologies           133
+6     Methodology                                                     Listing 1 Python functions to identify vulnerable uRPF net-
+                                                                      works.
+   In this section, we present the methodologies to identify
+                                                                 1    """
+uRPF-enabled networks that are vulnerable to SBA-uRPF 2                 network_graph (dict): Representation of the AS
+attacks and methods to quantify the impact.                              ,→   topology where keys are AS numbers, and
+   Following the requirements outlined in Section 5, we ex-              ,→   values are their providers, customers, and
+amine networks that deploy uRPF to determine whether they                ,→   peers.
+                                                                 3      urpf_network_asn (int): AS number of the
+could be targeted by a stealthy prefix hijack (e.g., AS4 in              ,→   uRPF-enabled network to evaluate.
+Figure 2 and Figure 3). For a given uRPF-enabled network, 4             prefix_of_urpf_network: The prefix owned by the
+we iterate over its providers to identify whether any provider           ,→   uRPF-enabled network.
+                                                                        checked_asn (int): AS number of the network to be
+could act as a bridging network (e.g., AS2). As previously 5
+                                                                         ,→   checked
+mentioned, a bridging network must have a customer network 6          """
+that attackers can exploit, as well as provider/peer networks 7       def is_vulnerable_urpf_network(network_graph,
+that could become victims. Additionally, the victim AS should          ,→   urpf_network_asn, prefix_of_urpf_network):
+                                                                            return has_bridging_network(network_graph,
+observe that the best route to the uRPF network under exam- 8                ,→  urpf_network_asn, prefix_of_urpf_network)
+ination passes through the bridging network. To verify this, 9
+we simulate route announcements from the uRPF network for 10          #True if the uRPF network is vulnerable, False
+its prefix (e.g., 4.4.4.0/24) and examine the routing table of         ,→ otherwise.
+                                                                11    def has_bridging_network(network_graph, checked_asn,
+the potential victim network. Once an appropriate bridging             ,→ prefix_of_urpf_network):
+network is identified, the uRPF network under examination is 12           # Iterate over providers of the AS under
+recognized as vulnerable to SBA-uRPF attacks.                              ,→ examination
+   If no suitable bridging network is found, we continue 13               for provider in
+                                                                           ,→ network_graph[checked_asn]['providers']:
+searching within the providers of the uRPF network’s 14                       # Check if the provider could be a bridging
+providers. In this scenario, we can identify an indirectly con-                ,→ network
+nected bridging network, as illustrated in Figure 3. Listing 15               customers = network_graph[provider]['customers']
+1 provides Python functions that identify whether a given 16                  peers = network_graph[provider]['peers']
+                                                                17            providers = network_graph[provider]['providers']
+uRPF-enabled network is vulnerable to SBA-uRPF attacks. 18
+   As mentioned in Section 5, the impact of a specifically 19                 # A bridging network must have at least two
+crafted prefix hijack is confined to the targeted uRPF-enabled                 ,→ customers (one of which is the targeted
+                                                                               ,→ uRPF network) and at least one
+network and the networks within its customer cone, so-called                   ,→ provider/peer network
+uRPF-protected networks. To quantify the impact, we ex- 20                    if len(customers) > 1 and (providers or peers):
+amine the number of affected uRPF-protected networks. The 21                      # Check if victim AS observes the best
+greater the number of affected networks, the larger the impact.                    ,→ route through the bridging network
+                                                                 22               for AS in providers:
+                                                                 23                   routing_table = AS.get_routing_table()
+7     Assessing Extent of Vulnerable Networks                    24                   as_path =
+   In this section, we assess the vulnerability of Internet net-                       ,→ routing_table[prefix_of_urpf_network]
+                                                                 25                   if provider in as_path:
+works to SBA-uRPF attacks and evaluate the impact of attacks 26                           return True
+targeting individual vulnerable networks.                        27               for AS in peers:
+   To simulate the propagation of BGP announcements, we 28                            routing_table = AS.get_routing_table()
+                                                                                      as_path =
+use a recently developed and publicly available BGP simula- 29                         ,→ routing_table[prefix_of_urpf_network]
+tor2 [13], which is built upon the AS relationships provided 30                       if provider in as_path:
+by CAIDA [9], consisting of 77,505 ASes that include 65,295 31                            return True
+stub or multihomed, 12,191 transit, and 19 tier-1 networks. 32
+                                                                 33           if has_bridging_network(network_graph, provider,
+The simulator sets up BGP routing policies following the                       ,→ prefix_of_urpf_network):
+principles defined by [14] (Gao-Rexford).                        34               return True
+   As discussed in Section 6, the impact of an individual prefix 35
+hijack is limited to the targeted network using uRPF and the 36           return False
+networks within its customer cone. We do not analyze the im-
+pact at varying deployment rates of uRPF. This is because, as
+uRPF adoption increases across the Internet, the potential at-        vulnerability to being targeted by a stealthy prefix hijack,
+tack surface expands, exposing more uRPF-enabled networks             assuming they all employ uRPF.
+to SBA-uRPF attacks. Instead, we examine each network
+                                                                        For each network node, we identify bridging networks (e.g.,
+node in the simulator described in Section 6 to examine its
+                                                                      AS2 in Figures 2 and 3). As outlined in Section 6, we also sim-
+    2 https://github.com/jfuruness/bgpy_pkg                           ulate BGP announcements and confirm that the route to the
+
+
+
+134    19th USENIX WOOT Conference on Offensive Technologies                                                   USENIX Association
+                          Tier-1     Transit       Edge           cone. Vulnerable edge networks have the lowest impact level.
+                                                                  As shown in the table, only the vulnerable network itself can
+    Direct connection        0       11,959       63,157          be affected since these networks do not have any customers.
+   Indirect connection       0         86         1,751           In contrast, an average of 1,141 networks would be impacted
+    Bridging (mean)          0          3            2            for vulnerable transit networks. Specifically, among these,
+     Victim (mean)           0        1,280         615           1,043 have a customer cone size greater than 100, of which
+    Attacker (mean)          0        3,025        1,448          748 (71.7%) are customers of tier-1 networks, indicating their
+                                                                  proximity to the core of the Internet. These networks are
+        Attacks              0      1,781,854    818,355
+                                                                  expected to serve a larger number of customers, suggesting
+     Impact (mean)           0         1,141        1
+                                                                  that SBA-uRPF attacks pose a higher security risk to them. In
+   Impact (maximum)          0        59,115        1
+                                                                  these cases, tier-1 networks act as bridging networks, resulting
+Table 1: Simulation statistics across three different types of    in a maximum potential impact on 59,115 networks. However,
+vulnerable networks: tier-1, transit, and edge networks.          due to the robust security measures within tier-1 networks,
+                                                                  executing such attacks in practice may be challenging. The
+                                                                  associated difficulties and mitigations will be explored in our
+examined network in the potential victim network’s routing        future work.
+table traverses the bridging network. Once a bridging network
+is identified, the network node is considered vulnerable to       8   Impact on Critical Applications
+the SBA-uRPF attack. For simplicity, our study focuses on            IP spoofing is a fundamental technique used to launch
+identifying bridging networks that match the structures shown     various attacks, including DDoS attacks, DNS/NTP amplifica-
+in Figures 2 and 3. Consequently, the number of identified        tion attacks, and TCP connection detection/hijacking [12, 15].
+bridging networks is lower than the actual number, as net-        These attacks pose a significant security threat to critical In-
+works like AS3, which could also serve as bridging networks,      ternet infrastructures such as DNS, NTP, and web servers.
+are excluded from our analysis.                                      As a standardized method for preventing IP spoofing, uRPF
+   Table 1 demonstrates statistical results from simulations.     is expected to be adopted by network operators, particularly
+We identified 75,116 vulnerable networks with a directly con-     to protect the critical applications mentioned above. However,
+nected bridging network (as indicated by "Direct connection"      the abuse of uRPF through SBA-uRPF attacks introduces
+in the table), including 11,959 transit networks and 63,157       another significant threat to these critical servers operating
+edge networks. 1,837 vulnerable networks with an indirectly       behind uRPF protection.
+connected bridging network (as indicated by "Indirect con-           Consider a scenario where a DNS server is running within
+nection") were detected, of which 86 are transit networks and     AS7, as shown in Figures 2 and 3. If AS4 becomes the target
+1,751 are edge networks. This suggests that, under the assump-    of an SBA-uRPF attack, queries from DNS clients within
+tion of uRPF adoption, a vast majority (99.3%) of networks        the victim network, AS3, would be unable to reach the DNS
+across the Internet could be vulnerable to SBA-uRPF attacks.      server, resulting in a denial-of-service (DoS) attack. Similarly,
+Also, it can be seen that Tier-1 networks are not vulnerable.     if a DNS server is located within AS3, DNS clients behind
+This is because, they lack providers, meaning no bridging net-    AS4 would not receive responses from the server, also leading
+works can be identified for them. In contrast, 64,908 (99.4%)     to a DoS.
+edge networks and 12,045 (98.8%) transit networks could
+potentially be targeted by SBA-uRPF attacks.                      9   Extension: Attacks with Shorter AS Path
+   Subsequently, for each type of vulnerable network, we ex-         The attack proposed in Section 5 relies on the customer
+amined the mean number of bridging networks, victim net-          route preference policy, which limits the selection of the at-
+works, and attacker networks that can be exploited for launch-    tacker’s network. However, this limitation does not signifi-
+ing SBA-uRPF attacks, as indicated by "Bridging (mean)",          cantly affect the feasibility of SBA-uRPF attacks, as demon-
+"Victim (mean)", and "Attacker (mean)" in the table. As ob-       strated by our simulation results.
+served, vulnerable transit networks exhibit larger numbers           Adversaries can, however, exploit another routing policy
+compared to vulnerable edge networks. This is reasonable,         where ASes prefer shorter AS paths, thereby extending the
+as larger networks tend to have more neighboring networks,        attack. For instance, the bridging network in Figure 2 and
+thereby providing more options for adversaries. Our analysis      Figure 3 has no other customers besides AS4, and AS5 is
+shows that for vulnerable transit networks, a total of 1.7 mil-   also its provider network, similar to AS3. In this case, adver-
+lion potential attacks could be executed by pairing different     saries within AS5 originate a route for the prefix z.z.z.0/24
+attacker and victim networks.                                     owned by ASz, an indirect customer of AS3, and propagate
+   We then examined the impact level of SBA-uRPF attacks.         this route to AS2 via three hops. AS2 observes two routes
+Recall that a specific SBA-uRPF attack can affect both the        for z.z.z.0/24: one from AS5 with an AS path [AS5, AS4],
+vulnerable network itself and all networks within its customer    and another from AS3 with an AS path length of three. Since
+
+
+
+USENIX Association                                           19th USENIX WOOT Conference on Offensive Technologies            135
+both AS5 and AS3 are providers of AS2, these routes have             work. Unlike conventional prefix hijacking, which is typically
+the same local preference [7]. For routes with the same prefix       an untargeted attack, adversaries deploying SBA-uRPF specif-
+and local preference, ASes prefer the route with a shorter AS        ically target uRPF-enabled networks while ensuring that no
+path. As a result, AS2 selects the malicious route from AS5          redirected traffic reaches their own infrastructure. Neverthe-
+for export.                                                          less, the unintended consequences of prefix hijacking impose
+   We leave the assessment of the feasibility and impact of          an additional processing burden on the adversary’s network
+this extended attack for future work.                                due to the influx of unwanted traffic. Additionally, the prop-
+                                                                     agated prefix hijack can be observed and detected by global
+10    Limitations and Challenges                                     BGP route monitoring systems such as RouteViews [34] and
+    Our analysis provides an upper bound. We assume that             RIPE [2], which could undermine the stealth of SBA-uRPF.
+networks prefer BGP routes learned from their customers              Future work will address the undesired impacts of prefix hi-
+over those from their providers or peers. However, in prac-          jacking and enhance the stealth capabilities of SBA-uRPF.
+tice, networks may implement more complex routing policies.
+                                                                     11    Countermeasures
+For example, they may use BGP communities to adjust local
+preferences and control route export behavior [7]. In Figure            Our simulations reveal that a substantial number of net-
+2, AS2 can apply BGP communities such as LowerPref to                works on the Internet could suffer from SBA-uRPF attacks.
+reduce the preference for routes learned from its customers.         This finding may discourage the widespread adoption of uRPF.
+In this case, the attack would not succeed. As a result, the         Therefore, countermeasures should be implemented to miti-
+number of networks vulnerable to the proposed attack may             gate SBA-uRPF attacks in future efforts.
+be overestimated.                                                       Recall that the attack involves prefix hijacking with AS path
+    Realistic challenges. Additionally, the study assumes that       manipulation to trigger BGP routing loop prevention. Given
+every network adopts uRPF, leading to a theoretical analysis         this, one possible countermeasure is for ASes (such as AS2
+that does not accurately reflect real-world conditions. Future       in Figure 2) to deploy mechanisms that defend against AS
+work will incorporate real-world settings for a more practical       path manipulation. Existing path validation mechanisms, such
+evaluation of the attack’s impact. Additionally, our simula-         as BGPsec [RFC8205] and Autonomous System Provider
+tor relies on AS relationships provided by CAIDA, and any            Authorization (ASPA) [3], have been designed to address
+inaccuracies in CAIDA’s data could also impact our results.          this issue. Assuming that AS2 in Figure 2 adopts BGPsec,
+However, the confidentiality of network operators’ routing           the BGPsec-enabled routers would reject the bogus route,
+policies and data on AS relationships makes a realistic evalu-       as the signature corresponding to AS4 in the path would
+ation challenging.                                                   fail validation. Additionally, if the bridging network (AS2)
+    Attack is simple to launch. Upon identifying vulnera-            deploys Route Origin Validation (ROV), the route with a fake
+ble networks that have adopted uRPF, an adversary can ex-            origin would be classified as RPKI-invalid and discarded by
+ploit prefix hijacking and AS path manipulation to influence         the router. As a result, when AS2 employs BGPsec or ROV,
+uRPF’s decision-making process. From a technical perspec-            the malicious route is prevented from propagating. Instead,
+tive, SBA-uRPF is relatively straightforward to implement,           AS2 forwards the legitimate route originating from AS3 to
+as crafting a prefix hijack with a modified AS path is not par-      AS4, thereby mitigating the attack.
+ticularly challenging. Our simulation results reveal millions           However, if an uRPF-enabled network deploys ROV, ad-
+of possible attack scenarios that adversaries could exploit.         versaries may be able to abuse ROV to drop bogus BGP
+However, gaining control over an AS is non-trivial. Once             announcements instead of exploiting routing loop prevention.
+control is established, the adversary’s network becomes fixed,       The feasibility of such an attack is limited, as it requires the
+limiting their operational flexibility, as SBA-uRPF is a highly      targeted network to deploy ROV and the victim network to
+targeted attack. In such cases, the adversary may find few or        have ROAs. Future work will explore additional countermea-
+no exploitable networks, significantly reducing the attack’s         sures.
+effectiveness.
+    Load on adversary. Prefix hijacks initiated by attackers         12    Conclusions
+often go unnoticed by the affected networks. Although the               Unicast Reverse Path Forwarding (uRPF) is the primary
+uRPF-enabled network can observe the bogus route, it merely          security measure for Source Address Validation (SAV) to mit-
+filters it out to prevent routing loops rather than identifying it   igate IP spoofing attacks. However, like many security mech-
+as a hijack. This inherent behavior makes SBA-uRPF attacks           anisms, uRPF is a double-edged sword: while it enhances se-
+particularly undetectable to targeted networks, potentially con-     curity, our research demonstrates that uRPF itself introduces
+stituting a long-term security threat. However, these hijacks        a high-risk attack vector that could be exploited at Internet
+can propagate globally across the Internet through bridging          scale. We show how adversaries can exploit uRPF’s decision
+networks. As a result, traffic from networks that accept the         properties, specifically those related to the arrival direction
+fraudulent announcement is redirected to the attacker’s net-         of traffic, to manipulate its filtering behavior. By leveraging
+
+
+
+136   19th USENIX WOOT Conference on Offensive Technologies                                                   USENIX Association
+prefix hijacking, attackers can cause uRPF to unintentionally                  [9] CAIDA.                 https://publicdata.caida.org/datasets/
+discard legitimate packets, resulting in a Denial-of-Service                       as-relationships/serial-1/. [Online; accessed 10-Oct-2023].
+(DoS) attack. We call this attack SBA-uRPF. The stealthy                      [10] Tianxiang Dai and Haya Shulman. Smap: Internet-wide scanning for
+                                                                                   spoofing. In Annual Computer Security Applications Conference, pages
+nature of SBA-uRPF means that affected networks are often                          1039–1050, 2021.
+unaware of ongoing attacks, making it a serious threats to                    [11] David Dittrich and Erin Kenneally. The menlo report: Ethical principles
+Internet routing security.                                                         guiding information and communication technology research. Tech-
+   To better understand the scope of this vulnerability, we first                  nical Report 11-01, U.S. Department of Homeland Security, August
+propose methodologies to identify uRPF-adopting networks                           2012.
+that are susceptible to SBA-uRPF. Assuming universal uRPF                     [12] Xuewei Feng, Qi Li, Kun Sun, Chuanpu Fu, and Ke Xu. Off-path tcp
+                                                                                   hijacking attacks via the side channel of downgraded ipid. IEEE/ACM
+deployment (a hypothetical scenario where every network                            transactions on networking, 30(1):409–422, 2021.
+adopts uRPF), we conduct a simulation-based study to assess                   [13] Justin Furuness, Cameron Morris, Reynaldo Morillo, Amir Herzberg,
+the extent of vulnerabilities and the potential impact of an                       and Bing Wang. Bgpy: The bgp python security simulator. In Proceed-
+attack. Our findings reveal that an overwhelming majority                          ings of the 16th Cyber Security Experimentation and Test Workshop,
+(99.3%) of networks across the Internet could be vulnerable                        CSET ’23, page 41–56, New York, NY, USA, 2023. Association for
+                                                                                   Computing Machinery.
+to SBA-uRPF attacks. In the worst-case scenario, up to 59,115
+                                                                              [14] Lixin Gao and Jennifer Rexford. Stable internet routing without global
+networks (76.3%) could be affected.                                                coordination. IEEE/ACM Trans. Netw., 9(6):681–692, 2001.
+   We discuss the limitations of our study, the potential im-                 [15] Harm Griffioen, Kris Oosthoek, Paul van der Knaap, and Christian
+pact of SBA-uRPF on critical systems, such as DNS servers,                         Doerr. Scan, test, execute: Adversarial tactics in amplification ddos
+and propose potential attack extensions and countermeasures.                       attacks. In Proceedings of the 2021 ACM SIGSAC Conference on
+                                                                                   Computer and Communications Security, CCS ’21, page 940–954, New
+While our analysis is based on simulated environments and
+                                                                                   York, NY, USA, 2021. Association for Computing Machinery.
+theoretical uRPF configurations, our insights reveal signifi-
+                                                                              [16] Brendon Harris and Ray Hunt. Tcp/ip security threats and attack
+cant security risks associated with uRPF adoption.                                 methods. Computer communications, 22(10):885–897, 1999.
+                                                                              [17] Amir Herzberg and Haya Shulman. Fragmentation Considered Poi-
+Acknowledgements                                                                   sonous: or one-domain-to-rule-them-all.org. In CNS 2013. The Confer-
+   This work has been co-funded by the German Federal Min-                         ence on Communications and Network Security. IEEE. IEEE, 2013.
+istry of Education and Research and the Hessen State Min-                     [18] Thomas Holterbach, Thomas Alfroy, Amreesh Phokeer, Alberto Dain-
+istry for Higher Education, Research and Arts within their                         otti, and Cristel Pelsser. A system to detect {Forged-Origin}{BGP}
+                                                                                   hijacks. In 21st USENIX Symposium on Networked Systems Design
+joint support of the National Research Center for Applied                          and Implementation (NSDI 24), pages 1751–1770, 2024.
+Cybersecurity ATHENE and by the Deutsche Forschungsge-                        [19] Geoff Huston and George Michaelson. Validation of route origination
+meinschaft (DFG, German Research Foundation) SFB 1119.                             using the resource certificate public key infrastructure (pki) and route
+                                                                                   origin authorizations (roas). Technical report, 2012.
+References                                                                    [20] S. Kent and K.seo. An Infrastructure to Support Secure Internet Rout-
+ [1] Mutually Agreed Norms for Routing Security (MANRS) Imple-                     ing. RFC 6480, February 2012.
+     mentation Guide. https://www.ripe.net/publications/docs/                 [21] Marc Kührer, Thomas Hupperich, Christian Rossow, and Thorsten Holz.
+     ripe-706/?utm_source=chatgpt.com, 2018.                                       Exit from hell? reducing the impact of {Amplification}{DDoS} attacks.
+ [2] RIPE Network Coordination Centre.          http://www.ripe.net/,              In 23rd USENIX Security Symposium (USENIX Security 14), pages
+     September 2024.                                                               111–125, 2014.
+ [3] A. Azimov, E. Bogomazov, R. Bush, K. Patel, and J. Snijders.             [22] Sanjeev Kumar. Smurf-based distributed denial of service (ddos) at-
+     Verification of AS_PATH Using the Resource Certificate Public                 tack amplification in internet. In Second International Conference on
+     Key Infrastructure and Autonomous System Provider Authorization,              Internet Monitoring and Protection (ICIMP 2007), pages 25–25. IEEE,
+     November, 2020. https://datatracker.ietf.org/doc/html/                        2007.
+     draft-ietf-sidrops-aspa-verification-06.                                 [23] Qasim Lone, Alisa Frik, Matthew Luckie, M Korczyński, Michel van
+ [4] Fred Baker and Pekka Savola. Rfc3704: Ingress filtering for multi-            Eeten, and Carlos Ganán. Deployment of source address validation
+     homed networks, 2004.                                                         by network operators: a randomized control trial. Proceedings of the
+                                                                                   IEEE Security and Privacy (S&P), 2022.
+ [5] Hitesh Ballani, Paul Francis, and Xinyang Zhang. A Study of Prefix Hi-
+                                                                              [24] Qasim Lone, Matthew Luckie, Maciej Korczyński, Hadi Asghari,
+     jacking and Interception in the Internet. In ACM SIGCOMM Computer
+                                                                                   Mobin Javed, and Michel Van Eeten. Using crowdsourcing market-
+     Communication Review, volume 37, pages 265–276. ACM, 2007.
+                                                                                   places for network measurements: The case of spoofer. In 2018 Net-
+ [6] Robert Beverly and Steven Bauer. The spoofer project: Inferring the           work Traffic Measurement and Analysis Conference (TMA), pages 1–8.
+     extent of source address filtering on the internet. In Usenix Sruti,          IEEE, 2018.
+     volume 5, pages 53–59, 2005.
+                                                                              [25] Qasim Lone, Matthew Luckie, Maciej Korczyński, and Michel
+ [7] Henry Birge-Lee, Liang Wang, Jennifer Rexford, and Prateek Mittal.            Van Eeten. Using loops observed in traceroute to infer the ability
+     Sico: Surgical interception attacks by manipulating bgp communities.          to spoof. In International Conference on Passive and Active Network
+     In Proceedings of the 2019 ACM SIGSAC Conference on Computer                  Measurement, pages 229–241. Springer, 2017.
+     and Communications Security, CCS ’19, page 431–448, New York, NY,        [26] Matthew Luckie, Robert Beverly, Ryan Koga, Ken Keys, Joshua A
+     USA, 2019. Association for Computing Machinery.                               Kroll, and K Claffy. Network hygiene, incentives, and regulation: de-
+ [8] Matt Bishop and David V. Bailey. Ethical issues in computer security          ployment of source address validation in the internet. In Proceedings of
+     research: What practitioners say. In Proceedings of the 4th Workshop          the 2019 ACM SIGSAC Conference on Computer and Communications
+     on Ethics in Computer Security Research (WECSR). Springer, 2008.              Security, pages 465–480, 2019.
+
+
+
+
+USENIX Association                                                       19th USENIX WOOT Conference on Offensive Technologies                       137
+[27] MANRS.       Anti-Spoofing – Preventing traffic with spoofed
+     source IP addresses. https://www.manrs.org/netops/guide/
+     antispoofing/. [Online; accessed 25-Jan-2023].
+[28] Jared Mauch. Spoofing ASNs. https://seclists.org/nanog/
+     2013/Aug/132. [Online; accessed 25-Jan-2023].
+[29] Alexandros Milolidakis. Bgp hijackers that evade public route collec-
+     tors.
+[30] Alexandros Milolidakis, Tobias Bühler, Kunyu Wang, Marco Chiesa,
+     Laurent Vanbever, and Stefano Vissicchio. On the effectiveness of bgp
+     hijackers that evade public route collectors. IEEE Access, 11:31092–
+     31124, 2023.
+[31] Reynaldo Morillo, Justin Furuness, Cameron Morris, James Breslin,
+     Amir Herzberg, and Bing Wang. Rov++: Improved deployable defense
+     against bgp hijacking. In NDSS, 2021.
+[32] Robert T. Morris. A weakness in the 4.2bsd unix tcp/ip software.
+     ATT Bell Laboratories Technical Report, 1985. Discusses weaknesses
+     in TCP sequence number generation, later exploited in attacks like
+     Mitnick’s.
+[33] Yakov Rekhter, Susan Hares, and Tony Li. A Border Gateway Protocol
+     4 (BGP-4). RFC 4271, January 2006.
+[34] RouteViews. http://www.routeviews.org. [Online; accessed 13-
+     Nov-2020].
+[35] Haya Schulmann and Shujie Zhao. Insights into sav implementations
+     in the internet. In International Conference on Passive and Active
+     Network Measurement, pages 69–87. Springer, 2024.
+[36] Daniel Senie and Paul Ferguson. Network Ingress Filtering: Defeating
+     Denial of Service Attacks which employ IP Source Address Spoofing.
+     RFC 2827, May 2000.
+[37] Haya Shulman and Shujie Zhao. Poster: Lemon: Global route leak
+     monitoring service. In Proceedings of the ACM SIGCOMM 2023
+     Conference, pages 1111–1113, 2023.
+[38] Philip Smith. Unicast Reverse Path Forwarding, September,
+     2023. https://www.bgp4all.com.au/pfs/_media/workshops/
+     03-urpf.pdf.
+[39] K Sriram, D Montgomery, and J Haas. Rfc 8704 enhanced feasible-path
+     unicast reverse path forwarding. 2020.
+[40] Latanya Sweeney, Mercè Crosas, and Michael Bar-Sinai. Sharing
+     sensitive data with confidence: The data tags system. Technology
+     Science, September 2015.
+[41] Pierre-Antoine Vervier and Olivier Thonnard. Spamtracer: How
+     stealthy are spammers? In 2013 Proceedings IEEE INFOCOM, pages
+     3477–3482. IEEE, 2013.
+[42] Pierre-Antoine Vervier, Olivier Thonnard, and Marc Dacier. Mind your
+     blocks: On the stealthiness of malicious bgp hijacks. In NDSS, 2015.
+[43] Haining Wang, Danlu Zhang, and Kang G Shin. Detecting syn flooding
+     attacks. In Proceedings. Twenty-first annual joint conference of the
+     IEEE computer and communications societies, volume 3, pages 1530–
+     1539. IEEE, 2002.
+
+
+
+
+138    19th USENIX WOOT Conference on Offensive Technologies                 USENIX Association
+

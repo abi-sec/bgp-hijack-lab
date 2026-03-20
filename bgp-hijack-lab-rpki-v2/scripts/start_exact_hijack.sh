@@ -48,6 +48,26 @@ echo -e "${YELLOW}--- R1 Routing Table (next hop for 13.0.0.0) ---${RESET}"
 docker exec "$R1" vtysh -c "show ip route 13.0.0.0/24"
 
 echo ""
-echo -e "${RED}Expected: R1 now routes to R4 (AS400) instead of R3 (AS300)${RESET}"
+
+# Detect actual next-hop to make it easy to show mitigation effects
+# Extract the IP after the leading '*' and strip trailing comma
+NEXT_HOP=$(docker exec "$R1" vtysh -c "show ip route 13.0.0.0/24" \
+  | sed -n 's/^[[:space:]]*\* \([0-9.]*\),.*/\1/p' \
+  | head -n1)
+
+case "$NEXT_HOP" in
+  10.14.0.2)
+    # Traffic is going to the attacker (R4 / AS400)
+    echo -e "${RED}Result: R1 routes to R4 (AS400) — hijack SUCCEEDED at R1${RESET}"
+    ;;
+  10.12.0.2)
+    # Traffic is going to the legitimate path via R2/R3
+    echo -e "${GREEN}Result: R1 routes via R2→R3 (AS200 AS300) — hijack BLOCKED at R1${RESET}"
+    ;;
+  *)
+    echo -e "${YELLOW}Result: Unexpected next-hop '${NEXT_HOP}' for 13.0.0.0/24 — check routing manually${RESET}"
+    ;;
+esac
+
 echo -e "${GREEN}Run scripts/stop_attack.sh to withdraw the hijack${RESET}"
 echo -e "${BOLD}================================================${RESET}"

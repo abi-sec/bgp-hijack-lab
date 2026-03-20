@@ -1,0 +1,768 @@
+                             A System to Detect Forged-Origin BGP Hijacks
+
+         Thomas Holterbach∗, Thomas Alfroy∗, Amreesh Phokeer†, Alberto Dainotti‡, Cristel Pelsser§
+                 ∗University of Strasbourg, †Internet Society, ‡Georgia Tech, §UCLouvain
+
+
+
+
+                          Abstract                                   The vulnerability they exploit is simply the result of BGP
+                                                                     being designed without security in mind: An attacker can ma-
+   Despite global efforts to secure Internet routing, attack-
+                                                                     nipulate every attribute in a BGP message (including the AS
+ers still successfully exploit the lack of strong BGP security
+                                                                     path and its origin AS) and illegitimately announce a prefix
+mechanisms. This paper focuses on an attack vector that is
+                                                                     owned by its victim so as to divert the traffic to its network.
+frequently used: Forged-origin hijacks, a type of BGP hijack
+                                                                         Proactive solutions against BGP hijacks are being grad-
+where the attacker manipulates the AS path to make it im-
+                                                                     ually deployed. However, forged-origin hijacks have been
+mune to RPKI-ROV filters and appear as legitimate routing
+                                                                     left uncovered by such solutions—despite these attacks being
+updates from a BGP monitoring standpoint. Our contribution
+                                                                     actively used in the wild. In fact, network operators attempt to
+is DFOH, a system that quickly and consistently detects forged-
+                                                                     proactively thwart BGP hijacks by configuring their routers to
+origin hijacks in the whole Internet. Detecting forged-origin
+                                                                     filter hijacked routes [46] using (i) RPKI-based Route Origin
+hijacks boils down to inferring whether the AS path in a BGP
+                                                                     Validation (ROV) and (ii) data from Internet Routing Reg-
+route is legitimate or has been manipulated. We demonstrate
+                                                                     istries (IRR). Unfortunately, RPKI-ROV filters do not help
+that current state-of-art approaches to detect BGP anomalies
+                                                                     to detect forged-origin hijacks, since the forged origin in the
+are insufficient to deal with forged-origin hijacks. We identify
+                                                                     AS path is actually valid, while IRR-based filters are known
+the key properties that make the inference of forged AS paths
+                                                                     to be inaccurate, incomplete [25], and far too often missing
+challenging, and design DFOH to be robust against real-world
+                                                                     given the increasing number of observed BGP hijacks [7].
+factors (e.g., data biases). Our inference pipeline includes two
+                                                                     Today, network operators do not have many options left other
+key ingredients: (i) a set of strategically selected features, and
+                                                                     than waiting for the deployment of new security extensions to
+(ii) a training scheme adapted to topological biases. DFOH
+                                                                     BGP to consistently prevent forged-origin hijacks [44]. Such
+detects 90.9% of the forged-origin hijacks within only ≈5min.
+                                                                     deployment—if it will happen at all—might take more than a
+In addition, it only reports ≈17.5 suspicious cases every day
+                                                                     decade, as in the case of RPKI-ROV [21].
+for the whole Internet, a small number that allows operators
+to investigate the reported cases and take countermeasures.              In this paper, we present DFOH, the first locally-deployable
+                                                                     system that widely, quickly, and accurately Detects Forged-
+                                                                     Origin Hijacks on the Internet. With a single deployment
+1    Introduction                                                    of DFOH on a commodity server, any attacker performing a
+                                                                     forged-origin hijack is likely to be quickly detected, the hijack
+On 3 February 2022, the cryptocurrency platform KLAYswap             publicly reported, and the victim immediately notified. Being
+was targeted by hackers who stole $1.9 million worth of digi-        aware of the attack, the victim can apply countermeasures
+tal assets [59]. More recently, on 17 August 2022, an attack         and the community can take actions to prevent similar attacks
+to cBridge—a crypto-asset bridge—affected 32 victims, who            from happening again. Additionally, DFOH can detect past
+lost $235,000 [4]. Both attacks were the result of a forged-         attacks, allowing the community to measure the frequency of
+origin BGP hijack, a type of routing hijack where the attack-        such attacks or profile forged-origin hijackers.
+ers announce forged AS paths towards a victim prefix by                  DFOH is a passive system that processes the AS paths
+prepending the victim’s origin AS number in order to make            observed in publicly collected BGP routes to detect forged-
+them appear legitimate. Clearly, BGP hijacking attacks are not       origin hijacks. The problem of detecting forged-origin hijacks
+a surprise anymore. They repeatedly make the headlines [1,2]         can be reduced to identifying whether a link between two
+and are known as attack vectors to steal cryptocurrency [8],         ASes is real or fake. Unfortunately, there are multiple reasons
+obtain bogus certificates [15], or deanonymize Tor users [62].       why two ASes might connect, whereas there is no simple
+the attacker’s AS. The attack is successful because the origin      the announcements of their customers are correct, i.e., each
+of the hijacked route is valid. Consequently, the RPKI-based        customer legitimately holds the AS numbers and IP address
+filters miss the hijacked route, which also remains invisible       space they announce. This is achieved using route filters. In
+from all the hijack detection systems that solely look at the       theory, these filters, recommended by MANRS [46], prevent
+origin AS. For instance, AS4 in Fig. 1 receives a route for         an AS to propagate incorrect routing information when they
+9.0.0.0/8 with AS path AS6-AS9 and accepts it given that its        are properly configured. Yet, in practice, they are often miss-
+origin (AS9) is valid. Observe that AS1 and the CDN receive         ing, inaccurate, or controllable by an attacker.
+the two routes for 9.0.0.0/8 with the same AS path length,          Missing filters: In April 2020, ROSTELECOM hijacked sev-
+in which case their local preferences determine whether they        eral prefixes, which impacted at least Amazon and Akamai.
+use the legitimate route or the hijacked one.                       After investigation, it appears that at least two ASes, namely
+Definition: A forged-origin hijack is a BGP hijack where an         Rascom amd Cogent Co, did not configure proper filters that
+attacker AS announces a route for an IP prefix that it is not       would have reduced the spread of the hijack [47]. Although an
+authorized to originate and with an AS path that the attacker       increasing—but still rather low—number of operators agree
+purposely manipulates so that the origin AS is valid.               to follow routing security norms [26], we still observe many
+                                                                    hijacks that widely propagate through the Internet, which
+The flip side of a forged-origin hijack is that it makes the AS
+                                                                    indicates that these filters are often missing [48].
+path longer, which results in fewer ASes using the hijacked
+                                                                    Inaccurate filters: Network operators often rely on peering in-
+route compared to a misorigin (Type-0) hijack.
+                                                                    formation from the IRRs [39] to infer their customer cone, i.e.,
+More specific prefixes are not better off. Despite RPKI,            the set of ASes that can be reached only using customer links—
+forged-origin hijacks can also succeed towards more spe-            a necessary information to build accurate filters. However,
+cific prefixes. Operators oftentimes set a loose RPKI               IRRs are known to contain inaccurate information [24,25,53],
+MaxLength [31] (sometimes confusingly [21]), allowing the           which inevitably results in inaccurate filters.
+attacker to launch successful forged-origin hijacks on more         Controllable filters: Because the data from the IRRs is
+specific prefixes—a particularly harmful attack, since all traf-    not verified [49], an attacker can intentionally pollute it to
+fic from all ASes is directed to the attacker [30, 32].             take control over which filters are added or removed in its
+More advanced path manipulations are possible. An at-               provider’s routers. More precisely, an attacker could pollute
+tacker can prepend more than one AS number. For instance,           its as-set object, which is the IRR object that specifies a set
+the attacker AS6 in Fig. 1 could prepend 5 9, in which case the     of ASNs through which traffic can be routed, and is the object
+origin is valid but the attacker AS appears in the third position   often used to automatically generate route filters [12]. This
+from the origin. In this paper, we align with the state-of-art      is supposedly what happened no later than in August 2022:
+taxonomy [56] and define a Type-X hijack as follows:                An attacker (AS209243) added an Amazon’s AS number into
+Definition: A Type-X hijack is a forged-origin hijack where         its as-set object before it started to announce an Amazon’s
+X ≥ 1 indicates the position of the attacker’s AS in the forged     prefix with an Amazon’s AS number purposely prepended at
+AS path, with the first AS (the origin) being at position zero.     the origin of the AS path [5].
+In the (most common) cases where each AS number appears             Existing reactive defenses are narrowly focused. ARTEMIS
+once in the AS path, X indicates the number of prepended            is a system that detects forged-origin hijacks [56]. However,
+ASes. Prepending 5 9 thus results in a Type-2 hijack. Intu-         it is narrowly focused since it only detects hijacks that pertain
+itively, the higher is the number of prepended ASes, the lower      to the AS deploying it. The key mechanism that ARTEMIS
+is the impact of the attack (since the hijacked route reaches       relies on to detect forged-origin hijacks consists in classifying
+fewer ASes, as its AS path is longer).                              new AS links as legitimate when observed in both directions,
+                                                                    whereas it reports all the others as possible fake links. The
+                                                                    problem is that ARTEMIS’ approach cannot be directly ex-
+4     The Case for DFOH                                             tended to monitor all prefixes. Link bidirectionality can rule
+                                                                    out a significant fraction of AS paths with new links when they
+In this section, we highlight why DFOH is practically relevant      pertain to prefixes originated by the AS running ARTEMIS. In
+(§4.1), and identify its key challenges and requirements (§4.2).    fact, ARTEMIS likely observes both directions of the neigh-
+                                                                    boring links as it combines BGP views from public collectors
+4.1    Lack of Defenses                                             with local BGP views. However, when targeting attacks to-
+                                                                    ward any prefix on the Internet, and using only public router
+DFOH is practically relevant because there is currently no          collectors as vantage points, we find that bidirectionality is
+effective mechanism to detect forged-origin hijacks.                observable for only a small fraction of new links (see §6.2.4).
+Existing proactive defenses are not bulletproof. Because            Therefore, in the practical scenario that DFOH targets, solely
+RPKI-ROV does not prevent forged-origin hijacks, the main           relying on link bidirectionality results in a poor accuracy, as
+proactive defense for network operators is to check whether         we show in §E.1.
+4.2    Requirements                                                  5.1    Workflow
+We now highlight four key challenges and requirements that           DFOH’s workflow comprises the following three main com-
+DFOH must address to be effective and practical.                     ponents that are executed on a daily basis.
+                                                                     Zooming on the new AS link (§6.1). DFOH processes the
+ Requirement 1: A forged-origin hijack detection system
+                                                                     publicly available BGP routes and pinpoints AS links that
+ must be fast and accept real-time and historical queries.
+                                                                     appear for the first time in their AS paths. DFOH zooms on
+A fast detection (within a few minutes) enables mitigating the       those links because a forged-origin hijack is likely to trigger
+hijacks swiftly to limit their impact. Additionally, detecting       the appearance of a new AS link—typically the forged AS link
+past events is useful to e.g., lay hands on serial hijackers [64].   that connects the attacker and the victim in case of a Type-1
+                                                                     hijack (we discuss the corner cases in §6.1). While a new AS
+ Requirement 2: A forged-origin hijack detection system
+                                                                     link is an indicator to detect forged-origin hijacks, triggering
+ must be accurate, both for pinpointing actual hijacks and
+                                                                     an alert whenever a new link appears would result in a high
+ avoiding triggering false alarms.
+                                                                     number of inopportune alarms. In fact, legitimate factors such
+Accuracy matters because every detected hijack is likely to be       as new peering agreements or backup path activation can
+manually investigated by the victim AS to confirm the attack         result in new AS links being visible too.
+and apply the appropriate mitigation scheme. A high number              Unfortunately, we demonstrate in §7.4 that link prediction
+of false alarms would thus overwhelm network operators and           algorithms such as SEAL [68] do not translate well to dis-
+limit the practicality of the system. Besides, the detection         criminating the malicious new AS links from the real ones.
+system should not miss actual hijacks.                               These algorithms fail because they are generic whereas reveal-
+                                                                     ing malicious AS links is a problem with specific properties.
+ Requirement 3: A forged-origin hijack detection system
+                                                                     Thus, DFOH includes the following components that aim to
+ must be robust against missing, inaccurate and polluted data.
+                                                                     discriminate the fake new AS links from the legitimate ones.
+A forged-origin hijacks detection system must rely on a prob-
+                                                                     Computing features (§6.2). DFOH uses a set of features that
+abilistic inference as cryptographic-based AS paths verifica-
+                                                                     we carefully selected based on the key requirements identified
+tion is still missing today (BGPsec is not deployed at all [44]).
+                                                                     in §4.2 and that are computed with security in mind: They
+The inferences are made using the data collected in various
+                                                                     remain correct even with adversarial input. We divide these
+datasets including public peering information (PeeringDB
+                                                                     features into the following four categories:
+and the IRR [39, 52]), which are known to often be inaccu-
+rate and incomplete [25, 53]. Worse, these datasets can be           Topological features allow to quantify the change induced
+polluted by attackers, as they depend on voluntary and un-           by a new link on the AS topology (following the reasoning
+verified contributions [49]. Consequently, care must be taken        in [63]) and pinpoint the suspicious ones (e.g., that do not
+when designing the system to ensure robustness against any           follow the typical hierarchical structure of the AS topology).
+possible adversarial inputs or missing data.                         Peering features are peering characteristics such as points
+                                                                     of presence within a logical or geographical region that are
+ Requirement 4: A forged-origin hijack detection system              computed on a per-AS basis. Intuitively, two ASes that exhibit
+ must be accurate in all attack and peering scenarios.               similar peering characteristics have a higher chance to peer.
+Internet routing involves various sort of players (e.g., ASes,       AS-Path-pattern features indicate whether the AS paths ob-
+CDNs, IXPs, as summarized in Fig. 1). Thus, there are many           served from vantage points and that include a new link are
+possible attack scenarios. Each induces a different fingerprint      relevant based on the supposedly configured routing policies.
+on the collected data and may require a different detection          Bidirectionality features indicate whether an AS link is ob-
+scheme. Typically, a densely-connected Tier1 AS that an-             served in both directions, which is a sign of legitimacy.
+nounces many prefixes (among which some on behalf of its                DFOH uses these features for the following two reasons.
+customers) and hijacks a prefix owned by a stub AS might be          First, they enable to consistently (i.e., in all attack scenarios)
+harder to detect than a single-homed stub AS hijacking the           discriminate whether a new AS link is a legitimate intercon-
+prefix owned by another stub AS. Similarly, there are many           nection or caused by a forged-origin hijack (see §7.1). Second,
+legitimate peering scenarios (e.g., a remote peering session         to ensure that DFOH works even when some data is missing
+between two ASes located in different regions of the world)          and some feature values cannot be precisely computed. We
+and none should exhibit a high level of false alarms.                evaluate the relevance of the different categories of features in
+                                                                     §7.4, and confirm that when one category is not relevant for a
+5     Overview                                                       particular attack scenario or missing, the others compensate.
+                                                                     Inferring forged-origin hijacks (§6.3). Finally, DFOH builds
+We describe DFOH’s workflow (§5.1) as well as the functions          an inference model that takes as input an AS link and its com-
+that it provides (§5.2) and how users can leverage them (§5.3).      puted features and infers whether this AS link is the result of a
+forged-origin hijack. DFOH builds the model using the typical      sary. This usage is similar to how users use ARTEMIS [56].
+training pipeline used for link prediction in a graph [45, 68].    However, unlike ARTEMIS which relies on a list of neigh-
+A set of existing (legitimate cases) and nonexistent (mali-        boring ASes provided by the user as well as feeds from local
+cious cases) links are sampled from the AS topology and used       routers, DFOH does not require users to install any software
+as ground truth to train the inference model. Unfortunately,       and configure it.
+naively using the training pipeline of existing link prediction    Leveraging DFOH globally. DFOH enables a global detec-
+frameworks falls short for detecting forged-origin hijacks in      tion of forged-origin hijacks, which is useful for the scientific
+all attack scenarios (we confirm this in §7.4). The problem is     and operational community. For instance, DFOH can help
+that they sample the AS links without taking into considera-       researchers to characterize forged-origin hijacks (e.g., their
+tion the biases observed in the AS topology caused by its hier-    frequency, scope, or to profile serial hijackers [64]). Addi-
+archical structure. In fact, they sample the links uniformly at    tionnally, DFOH helps to globally monitor Internet routing
+random, which returns samples in which stub-to-stub links are      and is complementary to global BGP monitoring systems that
+overrepresented and links connecting the highly-connected          detect misorigin (Type-0) hijacks (e.g., [35]), traffic delays,
+ASes are underrepresented. This skewed effect is particularly      and disconnections (e.g., [37, 38]). Finally, we envision the
+critical when generating the negative sample, i.e., a set of       output of DFOH to be used in the BGP decision process as
+nonexistent links labeled as malicious and used in the train-      an alternative to BGPSec and ASPA [9, 44], which may take
+ing pipeline. Following the recommendation in [66], DFOH           years to be deployed. Network operators could deprioritize
+builds a balanced negative sample, representative of all possi-    (or drop) suspicious routes over legitimate ones to prevent
+ble malicious AS links, to ensure that all the attack scenarios    them from propagating to other networks.
+are covered.
+
+                                                                   6     Design
+5.2    Software functionalities
+                                                                   In this section, we motivate and explain the design of the
+Ease of deployment and usage. DFOH is open source and              DFOH’s internal components and algorithms.
+can run on a commodity server or a VM. Once installed,
+                                                                   Terminology. Throughout this section, we consider the undi-
+DFOH first downloads the different datasets and saves the
+                                                                   rected graph Gd,k = (Vd,k , Ed,k ) as the AS topology inferred
+parsed data in a database, which we make publicly available at
+                                                                   at a given day d from the AS paths collected during the k days
+https://dfoh.uclouvain.be/. It then processes the data
+                                                                   prior day d. Vd,k is the set of ASes, and Ed,k ⊆ Vd,k ∗Vd,k are
+and builds inference models on a daily basis.
+                                                                   the links between the ASes. We also consider that a new link
+Real-time and historical detection. DFOH uses the precom-          (v1 , v2 ) appears at day d, and is visible in a set A of AS paths.
+puted inference models to detect past and real-time forged-
+                                                                   Datasets. We collect BGP routes using BGPKIT [11] from
+origin hijacks. Upon detection of a new AS link, DFOH only
+                                                                   287 RIS [55] and RouteViews [51] vantage points that we
+needs to compute a few features before running the infer-
+                                                                   carefully select using MVP [6]. We collect the AS paths that
+ence, which is swift because it relies on a simple model (a
+                                                                   CAIDA uses to build its AS relationship dataset [3]. For now,
+random forest). The most time-consuming operation is boot-
+                                                                   we collect the data from one IRR (RADb) as it is the only one
+strapping DFOH, because it needs to build the database and
+                                                                   that makes available archives of its database. We collect daily
+the inference models for many days (for historical detection).
+                                                                   snapshots of PeeringDB from the CAIDA website [17]. We
+Wide and public detection at no cost for users. DFOH               explain how we clean and combine these datasets in §B.
+detects and reports forged-origin hijacks for all possible at-
+tackers and victims on the Internet, and for any time period.
+Users can examine the list of suspicious cases and apply filters   6.1     Zoom on new AS links
+on them (e.g., to focus on one AS number) at no cost as we
+                                                                   We start by explaining how DFOH detects new AS links.
+publicly disclose them at https://dfoh.uclouvain.be/.
+We describe a few interesting cases in §A.
+                                                                   6.1.1   Under ideal conditions
+
+5.3    Planned usages                                              Consider that an attacker controlling AS a launches a Type-1
+                                                                   hijack on a prefix owned by the victim AS v, with a, v ∈ Vd,k .
+Leveraging DFOH locally. Network operators can use                 Rapidly after, the BGP vantage points start to observe the
+DFOH to detect forged-origin hijacks targeting their prefixes.     hijacked routes and record their AS path. They likely observe
+Our evaluation (§7.3) shows that in the median case, a given       different AS paths because they are scattered everywhere on
+AS is only involved in zero or one suspicious case in a month,     the Internet. Yet, they all observe an AS path that ends with the
+given network operators to ability to manually check each          attacker-to-victim link, here (a − v), which is a new AS link,
+reported case and take the proper countermeasures if neces-        i.e., (a − v) ∈
+                                                                                 / Ed,k . This is the case in Fig. 1, where the BGP
+routes induced by the forged-origin hijack launched by AS6           AS5 AS9 to avoid triggering a new link. However, prepending
+all have an AS path that ends with AS6-AS9. DFOH follows             more ASes increases the length of the AS path, inducing a
+ARTEMIS’ approach to detect new AS links: It considers the           trade-off between visibility and impact of the attack (which
+AS topology Gd,k , with k = 300, i.e., sufficiently high to avoid    we highlight in §C) and compelling the attacker to signifi-
+missing existing links, and classifies an observed link (x, y) as    cantly reduce the impact of its attack. In fact, Type-1 hijacks
+new if (x, y) ∈
+              / Ed,k . We detail how DFOH builds Gd,k in §B.         are impactful (31.3% of the ASes are polluted in the median
+                                                                     case) but also visible by DFOH (100% induce a new link in the
+6.1.2   In the real world                                            median case) whereas Type-2 are slightly less visible (98.8%
+                                                                     induce a new link in the median case) but also less impactful
+DFOH has to deal with real world factors, e.g., attackers could      (1.3% of the ASes are polluted in the median case).
+advertise carefully manipulated BGP updates to thwart DFOH.
+We now list the scenarios in which a forged-origin hijack does        Scenario 4: The attacker ensures that its fake announce-
+not create a new AS link, and show that either DFOH includes          ments bypass the public BGP route collectors.
+mechanisms to avoid them or that they occur only when the            Previous works show that this is possible (unless DFOH relies
+impact of the attack is greatly limited.                             on some private collectors) [50]. However, the attacker must
+                                                                     prepend additional AS numbers in the AS paths. As shown
+Scenario 1: The attacker hijacks the prefix owned by an AS           in previous works [50, 56] (and confirmed in §C), this signifi-
+with which it legitimately peers.                                    cantly reduces the impact of the attack by diverting less traffic
+This attack scenario is akin to a route leak. For instance, an       to the attacker. For instance, the impact of hijack types larger
+attacker announcing a route learned from one provider to             than Type-1 is very limited or negligible (e.g., less than 10%
+another provider is defined as Type-1 route leak according to        of the ASes see the hijacked route for Type-2 hijacks [56]).
+RFC 7908 [60]. Route leaks are outside the scope of DFOH
+because there already exists tools that aim to detect them in
+the wild [10,23,61]. Besides, thwarting DFOH by legitimately         6.2     Features computation
+peering with its victim makes the attack harder to perform as
+it requires (i) additional resources for the attacker (e.g., being   Upon detection of a new link or an explicit user query, DFOH
+present in a peering facility where its victim is present too)       computes feature values. DFOH uses as input the new link and
+and (ii) to convince the victim to peer with it (unless if the       a set of AS paths that include this new link. These AS paths
+victim peers with the route server of an IXP [54]).                  are inferred from the public BGP routes or directly provided
+                                                                     by the user. We now explain how DFOH computes the feature
+Scenario 2: The attacker pollutes DFOH’s database by ad-             values for the four types of features.
+vertising legitimate routes but with fake AS paths.
+Past AS path manipulations carried in legitimate routes could        6.2.1   Topological features
+pollute the graph Gd,k by adding fake AS links, preventing
+DFOH to classify them as new AS links any longer. DFOH               The topological features aim to quantify how the new link
+thwarts this scenario by filtering out links that it inferred as     changes the AS topology [63]. Table 2 (Appendix) lists the
+fake from past inferences, i.e., these links are not in Gd,k . Ob-   topological features that DFOH uses to capture different di-
+serve that a link incorrectly inferred as supicious can be recur-    mensions of the topological changes. The topological features
+rently inferred as supicious over time, polluting DFOH’s out-        are either relative to a node (node-based) or a pair of nodes
+put. To prevent incorrect inferences from piling up over time,       (pair-based). DFOH uses seven node-based features that we
+DFOH only considers past inferences for up to one month,             classify into three categories. The first one quantifies how
+after which fake links are added in Gd,k and not considered          central and connected a node is in the graph; the second quan-
+as new link anymore. This one-month delay gives enough               tifies how connected are the neighboring nodes; and the third
+time for operators to examine the suspicious cases and protect       quantifies the topological patterns (e.g., triangles) that include
+their network against a potential future attack. Additionally,       the node. We classify the four pair-based features into two
+DFOH’s website provides filters for users to omit these recur-       categories. The first one measures how close are two nodes
+rent cases so as to prevent them from polluting the output.          based on their neighboring nodes whereas the second mea-
+                                                                     sures how close they are using their shortest distance. We
+ Scenario 3: The attacker announces a fake path that com-            omit other topological features as they are either redundant
+ prises an existing path between the victim and the attacker.        with the selected ones or too slow to compute.
+The attacker could prepend a path (ideally the shortest one)         Computing the feature values. DFOH computes the differ-
+from the victim AS to its own AS that exists in the AS topol-        ence induced by the new link on the feature scores. More
+ogy inferred from the routes collected by the BGP vantage            formally, assume a set Fn of node-based features and a set
+points. For instance, in Fig. 1, the attacker could prepend AS7      Fp of pair-based features. The feature values computation
+differs depending on the feature type. Note that for each type                        Index    Description
+of feature, DFOH uses k = 300 to build the AS topology Gd,k .                           1      The countries where ASX’s neighbors are registered
+Node-based features: Consider feature fi ∈ Fn and fi (x, Gd,k )                         2      The IXPs to which ASX’s neighbors are connected to
+its score for node x on Gd,k , with i the feature index in Table 2.                     3      The facilities to which ASX’s neighbors are present
+The feature value v( fi , d, v1 ) is the difference induced by the                      4      The cities of the facilities to which ASX’s neighbors are present
+new link (v1 , v2 ) on the score of feature fi for node v1 on day                       5      The countries of the facilities to which ASX’s neighbors are present
+d, and DFOH computes it using the following equation.
+
+              v( fi , d, v1 ) = fi (v1 , Gd,k ) − fi (v1 , G′d,k )                   Table 1: List of peering features used by DFOH along with
+                                                                                     their description. We consider features computation for ASX.
+           ′ ,V ′ ) is the graph G
+G′d,k = (Ed,k    d,k                   d,k that includes link (v1 , v2 ),
+         ′
+that is Ed,k = Ed,k ∪ (v1 , v2 ). DFOH computes the feature val-
+ues for both nodes v1 and v2 . Given that there are seven node-                      attacker ASX, it computes the scores for the neighboring ASes,
+based features, the resulting 14-dimensional feature vector                          for which ASX has no control over the peering information.
+Tnode_based (d, v1 , v2 ) is the following:                                          In fact, an operator can only update the peering information
+                                                                                     relative to its own organization. Besides, as ASes often have
+        Tnode_based (d, v1 , v2 ) = [v( f0 , d, v1 ), v( f0 , d, v2 ),               several neighbors (the average node degree of the AS topology
+                                    . . . , v( f6 , d, v1 ), v( f6 , d, v2 )]        is 12 and the median is 2), focusing on the neighboring ASes
+                                                                                     helps find relevant peering information even if a few of them
+Pair-based features: Consider feature fi ∈ Fp where                                  do not add peering information into peeringDB.
+ fi (x, y, Gd,k ) is its score for the pair of nodes x, y, with i the                Computing the feature values. Consider the vector fv,i,d that
+feature index in Table 2. The feature value v( fi , d, v1 , v2 )                     contains information about feature i for node v at day d. For
+is the difference induced by the new link (v1 , v2 ) on the                          each feature i, DFOH builds two vectors fv1 ,i,d and fv2 ,i,d based
+feature score fi for the pair of node v1 , v2 at day d, and DFOH                     on peering information collected at day d. On September 19,
+computes it using the following equation.                                            2022, for features 1 and 5, the vectors have 271 dimensions
+                                                                                     and each dimension corresponds to one of the 271 countries
+        v( fi , d, v1 , v2 ) = fi (v1 , v2 , Gd,k ) − fi (v1 , v2 , G′d,k )          found in peeringDB. Similarly, for feature 2, the vectors have
+                                                                                     944 (number of IXPs) dimensions, whereas for feature 3 they
+Given that there are four pair-based features, the resulting
+                                                                                     have 3558 (number of facilities) dimensions, and for feature
+4-dimensional feature vector Tpair_based (d, v1 , v2 ) is:
+                                                                                     4 they have 1482 (number of cities) dimensions. The value of
+ Tpair_based (d, v1 , v2 ) = [v( f7 , d, v1 , v2 ), . . . , v( f10 , d, v1 , v2 )]    fv,i,d at index j is the number of v’s neighbors that are in the
+                                                                                     country/IXP/facility/city that corresponds to index j.
+                                                                                         DFOH then normalizes the two vectors fv1 ,i,d and fv2 ,i,d
+6.2.2    Peering features
+                                                                                     such that they become comparable even if v1 and v2 have a
+The peering features evaluate the likelihood that two ASes                           different number of neighbors (normalization operation ∇),
+peer based on peering information collected from Peer-                               and removes indexes for which the values in both vectors
+ingDB [52] and BGPView [13]. DFOH considers the five                                 are zero (feature reduction operation ⊖). Finally, DFOH com-
+peering information listed in Table 1. The first three features                      putes the feature value for the link (v1 , v2 ) and a feature i
+stem from the fact that two ASes registered in the same coun-                        by computing the cosine distance between the two vectors,
+try, connected to the same IXP, or present in the same facility                      which quantifies how similar the two vectors are (operation
+are more likely to peer. The last two features stem from the                         α). We use the cosine distance because we are interested in
+fact that ASes that are not present in the same facilities but                       the direction of these vectors, not in their actual values, which
+that have point of presence that are geographically close (e.g.,                     depend on the number of neighbors, an irrelevant informa-
+same city) are more likely to peer. Of course, these intuitions                      tion for DFOH. For a given link (v1 , v2 ) and a day d, DFOH
+are not always true and an obvious counterexample is remote                          computes the following 5-dimensional feature vector.
+peering. Fortunately, the different categories of features com-
+pensate between each other so that DFOH remains accurate                                      P(d, v1 , v2 ) = [α(⊖(∇( fv1 ,1,d ), ∇( fv2 ,1,d ))),
+even when one is less relevant (see §7).                                                                    . . . , α(⊖(∇( fv1 ,5,d ), ∇( fv2 ,5,d )))]
+Dealing with adversarial inputs and polluted data. The
+peeringDB data is sometimes missing because participation is                         6.2.3    AS-path-pattern feature
+voluntary. Besides, the integrity of the data is unverified and an
+attacker could populate deceitful peering information. DFOH                          DFOH uses the AS paths of the hypothetically observed hi-
+addresses those two problems with the following strategy.                            jacked routes to compute the AS-path-pattern features. More
+Instead of computing the feature scores for a hypothetical                           precisely, DFOH checks whether the sequence of AS degree
+and customer cone size in an observed AS path p ∈ A is rel-                     6.2.4   The bidirectionality feature
+evant given the following two assumptions. First, as the AS
+                                                                                Identifying an AS link in both directions is a strong sign that it
+topology exhibits a hierarchical pattern with Tier1 ASes at
+                                                                                is legitimate [56]. However, checking for link bidirectionality
+the top, we expect that ASes higher in the hierarchy exhibit a
+                                                                                is more challenging for DFOH compared to local detection
+higher AS degree and customer cone size. Second, because
+                                                                                systems such as ARTEMIS [56]. This is because the routes
+the majority of the inter-domain routing policies follow the
+                                                                                collected by the public BGP vantage points only allow to
+Gao-Rexford model [33], we expect the AS paths to have a
+                                                                                observe a small fraction of the new AS links as bidirectional.
+valley-free pattern. When these two assumptions are valid, the
+                                                                                DFOH improves state-of-the-art techniques by combining the
+sequence of AS degree and customer cone size in an AS path
+                                                                                information from the public BGP data and the IRR to observe
+follows a strong and identifiable up-and-down pattern. For in-
+                                                                                more AS links in both directions. We explain our method-
+stance, between two stub ASes, we expect the AS degree and
+                                                                                ology and demonstrate its safety against adversarial inputs
+customer cone size to increase until the path reaches the Tier1
+                                                                                and benefits in §D.2 due to space constraints. Computing the
+ASes, and then to decrease until it reaches the destination AS.
+                                                                                bidirectionality feature results in the following 1-dimensional
+Inferring the suspicious AS paths. Unsurprisingly, these                        feature vector.
+two assumptions do not always hold. For instance, a CDN                                          B(d, v1 , v2 ) = [bidir(d, v1 , v2 )]
+may have a higher node degree than some of its providers.
+DFOH thus trains an inference model that computes the prob-                     Where bidir(d, v1 , v2 ) = 1 if the link (v1 , v2 ) is bidirectional
+ability that a sequence of AS degree or customer cone size                      at day d, else it is equal to zero.
+is legitimate or caused by a forged-origin hijack, based on
+historical (for the legitimate cases) and artificial (for the hi-               6.3     Inference
+jack cases) data used as ground truth. More precisely, we
+select a set of existing and nonexistent AS links. The existing                 We now explain how DFOH runs (§6.3.1) and trains (§6.3.2)
+links are selected randomly whereas the nonexistent links are                   its inference model using balanced samples (§6.3.3).
+selected following the sampling scheme described in §6.3,
+which ensures that the distribution of the nonexistent links                    6.3.1   Detecting forged-origin hijacks
+follows the distribution of the existing links. Then, for each
+                                                                                After computing the feature values for a new link (v1 , v2 )
+existing link, we randomly pick an AS path that includes this
+                                                                                and the observed AS path p ∈ A that includes the new link,
+AS link and where one end of the link is at the origin. For the
+                                                                                DFOH concatenates the resulting feature vectors and obtains
+nonexistent links, we randomly define the attacker and the
+                                                                                the following 27-dimensional feature vector.
+victim and pick an existing AS path for which the origin is
+the hijacker AS and add the victim as a new origin.                             F(d, v1 , v2 , p) = Tnode_based (d, v1 , v2 ) ⊕ Tpair_based (d, v1 , v2 )
+                                                                                                   ⊕P(d, v1 , v2 ) ⊕ J(d, v1 , v2 , p) ⊕ B(d, v1 , v2 )
+Computing the feature values. DFOH trains a random forest
+on sequences of AS degree and customer cone size inferred                       Where ⊕ is the concatenation operation. DFOH uses this
+from the created AS paths. DFOH finds the best parameters of                    feature vector as input to its inference model, which is a
+the random forest using a cross-validated grid search over a                    supervised binary classifier. The classifier relies on a random
+parameter grid. The degree of an AS is computed from the AS                     forest as this algorithm returns a slightly better performance
+topology that DFOH builds on a daily basis, and the customer                    compared to others (e.g., neural networks, decision tree or
+cone size is obtained from ASRank [18]. DFOH computes the                       SVM), is easier to understand, and is fast to train and query.
+following 3-dimensional feature vector.                                         DFOH refines its inference using many vantage points. A
+                                                                                new AS link is often visible from different BGP vantage
+                                                                                points, and the AS paths that include this new link may be
+J(d, v1 , v2 , p) = [ρ(d, v1 , v2 , p), σ(d, v1 , v2 , p), τ(d, v1 , v2 , p)]   different. DFOH computes the AS-path-pattern features for
+                                                                                all these AS paths, runs inferences for this new link and for
+                                                                                every observed AS path using the computed AS-path-pattern
+where ρ is the result of the fake AS path inference considering                 features, and triggers an alarm if half or more of the inferences
+the AS degree for link (v1 , v2 ), AS path p ∈ A and day d. Simi-               detect a forged-origin hijack. Observe that DFOH performs
+larly, σ is the result of the inference for the customer cone size,             well even if only one AS path is used (|A| = 1), which is what
+and τ is the result of the inference when AS degree and cus-                    we use to evaluate DFOH in §7.1.
+tomer cone size are combined. We find that combining both
+AS degree and customer cone size improves the inference
+                                                                                6.3.2   Training the classifier
+on some scenarios where, e.g., CDNs are involved. Note that
+each feature value is computed using its own independently-                     DFOH trains its classifier following a supervised training ap-
+trained inference model that DFOH updates every day.                            proach used in state-of-the-art link prediction frameworks [36,
+our balanced sampling scheme is a key ingredient to obtain
+high accuracy in every attack scenario.                              Link prediction applied to the AS topology. SEAL is a
+DFOH outperforms state-of-the-art link prediction algo-              framework for link prediction in a graph but it does not apply
+rithms. We compared DFOH to SEAL, a state-of-the-art                 well to detect fake AS links (see §7.4) [68]. Giakatos et al.
+link prediction framework that could be an alternative to infer      compare link prediction algorithms based on graph-based pre-
+whether a new AS link is legitimate or fake [68]. We run SEAL        diction models on Internet routing data [29]. More precisely,
+on the AS topology inferred on August 1, 2022, and configure         they compute a set of features for every AS and feed them
+it to use 20 000 existing and nonexistent links for the training.    either into a GNN model or a graph embedding model such
+We then evaluate it on 10 000 other existing and nonexistent         as bgp2vec [57]. The authors acknowledge that the AS topol-
+links that are selected using our balanced sampling scheme.          ogy and its hierarchical structure is challenging for a GNN
+SEAL returns a TPR of 19.3%, and an FPR of 5.5%, a better            or a graph embedding model, and their inference models do
+accuracy than a random classifier that would return ≈50% of          not translate well to detecting fake AS links. Finally, Shapira
+TPR and FPR, but a significantly lower accuracy than DFOH.           et al. proposed a deep-learning approach with a recurrent
+    The accuracy of SEAL turns out to be very skewed (as we          neural network based on node embedding computed using
+show in §E.2) because it uses a random sampling scheme               bgp2vec [57]. Yet, the performance of the proposed solution
+for the training. In fact, the attack scenarios for which SEAL       is evaluated on the small and biased dataset used in [20].
+poorly performs are the ones involving the highly-connected          New protocols and architectures. BGPSec is an extension to
+ASes, i.e., the ones that are underrepresented in a random           BGP where routers cryptographically verify the validity of the
+sample. We thus implemented b-SEAL, a modified version of            AS path [44]. However, it is not deployed at all, as it requires
+SEAL that uses our balanced sampling scheme for the training         expensive cryptographical operations in the routers. ASPA is
+instead. With a TPR of 80.6% and a FPR of 30.8%, b-SEAL is           a proposal to extend RPKI and use it for AS path validation
+still significantly less accurate that DFOH. Yet, we find that its   but it is not extensively deployed [9]. Finally, new secure
+accuracy is more consistent across all attack scenarios. Thus,       inter-domain protocols and architectures such as SCION [69]
+we conclude that (i) the balanced sampling is necessary for a        are challenging to widely deploy.
+consistent accuracy, regardless of the inference model used,
+and (ii) our selection of features based on domain-specific
+                                                                     9    Conclusion
+properties is relevant. We give more details in §E.2.
+                                                                     We present DFOH, the first system that consistently detects
+8    Related work                                                    forged-origin hijacks on the Internet. DFOH only reports
+                                                                     ≈17.5 cases every day, a small number that allows operators
+Misorigin (Type-0) hijacks detection. Prior works that an-           to manually investigate each case and take the proper coun-
+alyze control-plane information to detect MOAS hijacks               termeasures. We believe DFOH triggers interesting follow-up
+[19, 35, 42, 58, 65] can detect accidental hijacks but not the       works, such as measuring the frequency of these events, pro-
+malicious ones induced by forged-origin hijacks. Prior works         filing the forged-origin hijackers, or analyzing how often the
+that detect hijacks from data-plane information [16, 70, 71] of-     data traffic is diverted to the supposed attacker.
+ten can only be deployed per AS, precluding global analysis.
+Forged-origin hijacks detection. ARTEMIS detects forged-             10    Acknowledgments
+origin hijacks involving the AS deploying the tool, but can-
+not be extended for global detection (see §4.1). Cho et al.          We are grateful to the NSDI anonymous reviewers for their
+introduce algorithms based on the AS hegemony [27] to clas-          insightful comments. We are also grateful to our shepherd,
+sify reported hijacks as forged-origin hijacks [20]. The pro-        Italo Cunha, for its detailed feedback which helped us to im-
+posed global hegemony feature is similar in essence to our           prove the quality of the paper. We thank the InetLab platform
+AS-path-pattern feature. Yet, without our key ingredients, this      from the ICube laboratory for providing us a VM which we
+technique alone results in a low and skewed accuracy when            used to run DFOH.
+used for globally detecting forged-origin hijacks (see §7.4).           Thomas Holterbach is partially funded by the Internet So-
+This is confirmed by the authors themselves, who acknowl-            ciety (through the MANRS Initiative) and by Région Grand
+edge that their algorithm fails to classify hijacks that involve     Est. Thomas Alfroy is funded by ArtIC project "Artificial
+highly-connected ASes such as in the KlaySwap incident [59].         Intelligence for Care" (grant ANR-20-THIA-0006-01) and
+Kruegel et al. propose to detect anomalous BGP updates by            co funded by Région Grand Est, Inria Nancy - Grand Est,
+combining geographical and topological information about             IHU of Strasbourg, University of Strasbourg and University
+the ASes in the path [40]. However, little is known about how        of Haute-Alsace. This project has been made possible in part
+this technique would work to detect forged-origin hijacks.           by a grant from the Cisco University Research Program Fund,
+                                                                     an advised fund of Silicon Valley Foundation.
+References                                                            [21] Taejoong Chung, Emile Aben, Tim Bruijnzeels, Balakrish-
+                                                                           nan Chandrasekaran, David Choffnes, Dave Levin, Bruce M.
+ [1] Amazon once again lost control (for 3 hours) over                     Maggs, Alan Mislove, Roland van Rijswijk-Deij, John Rula,
+     the IP pool in a BGP Hijacking attack.     https:                     and Nick Sullivan. RPKI is Coming of Age: A Longitudinal
+     //research.securitum.com/amazon-once-again-lost-                      Study of RPKI Deployment and Invalid Route Origins. In IMC,
+     control-for-3-hours-over-the-ip-pool-in-a-bgp-                        2019.
+     hijacking-attack.
+                                                                      [22] CIDR REPORT for 12 Oct 22.               https://www.cidr-
+ [2] BGP Hijack of Amazon DNS to Steal Crypto Currency. https:             report.org/as2.0/".
+     //medium.com/oracledevs/bgp-hijack-of-amazon-
+                                                                      [23] How we detect route leaks and our new Cloudflare Radar route
+     dns-to-steal-crypto-currency-a90dd29cb3ab.
+                                                                           leak service. https://blog.cloudflare.com/route-leak-
+ [3] CAIDA AS relationships. https://catalog.caida.org/                    detection-with-cloudflare-radar/.
+     dataset/as_relationships_serial_2. 2022-12-1.
+                                                                      [24] B Du, G Akiwate, C Testart, A Snoeren, k claffy, K Izhikevich,
+ [4] Celer Bridge incident analysis. https://www.coinbase.com/             and S Rao. IRRegularities in the Internet Routing Registry. In
+     blog/celer-bridge-incident-analysis.                                  IMC’23.
+ [5] Yet another BGP      hijacking  towards  AS16509.                [25] Ben Du, Gautam Akiwate, Thomas Krenc, Cecilia Testart,
+     https://mailman.nanog.org/pipermail/nanog/2022-                       Alexander Marder, Bradley Huffaker, Alex C. Snoeren, and
+     August/220320.html.                                                   KC Claffy. IRR Hygiene in the RPKI Era. In PAM, 2022.
+ [6] Thomas Alfroy, Thomas Holterbach, and Cristel Pelsser. MVP:
+                                                                      [26] Ben Du, Cecilia Testart, Romain Fontugne, Gautam Akiwate,
+     Measuring internet routing from the most valuable points. In
+                                                                           Alex C. Snoeren, and kc claffy. Mind Your MANRS: Measur-
+     IMC’22.
+                                                                           ing the MANRS Ecosystem. In IMC, 2022.
+ [7] BGP, RPKI, and MANRS: 2020 in review.      https:
+                                                                      [27] Romain Fontugne, Anant Shah, and Emile Aben. "The (Thin)
+     //blog.apnic.net/2021/02/05/bgp-rpki-and-manrs-
+                                                                           Bridges of AS Connectivity: Measuring Dependency Using
+     2020-in-review/.
+                                                                           AS Hegemony". In PAM, 2018.
+ [8] Maria Apostolaki, Aviv Zohar, and Laurent Vanbever. Hijack-
+                                                                      [28] Lixin Gao and Jennifer Rexford. Stable Internet Routing with-
+     ing bitcoin: Routing attacks on cryptocurrencies. In Security
+                                                                           out Global Coordination. ACM SIGMETRICS, 2000.
+     and Privacy, 2017.
+ [9] Alexander Azimov, Eugene Bogomazov, Randy Bush, Keyur            [29] Dimitrios Panteleimon Giakatos, Sofia Kostoglou, Pavlos
+     Patel, Job Snijders, and Kotikalapudi Sriram. BGP AS_PATH             Sermpezis, and Athena Vakali. Benchmarking Graph Neu-
+     Verification Based on Autonomous System Provider Autho-               ral Networks for Internet Routing Data, 2022.
+     rization (ASPA) Objects. Internet-draft, 2023.                   [30] Yossi Gilad, Avichai Cohen, Amir Herzberg, Michael Schapira,
+[10] Marcelo Bagnulo, Alberto García-Martínez, Stefano Angieri,            and Haya Shulman. Are We There Yet? On RPKI’s Deploy-
+     Andra Lutu, and Jinze Yang. Practicable route leak detection          ment and Security. In NDSS, 2017.
+     and protection with ASIRIA. Computer Networks, 2022.             [31] Yossi Gilad, Sharon Goldberg, Kotikalapudi Sriram, Job Sni-
+[11] Fast, Extensible, On-premise Global BGP Monitoring. https:            jders, and Ben Maddison. The Use of maxLength in the Re-
+     //bgpkit.com/.                                                        source Public Key Infrastructure (RPKI). RFC 9319, October
+                                                                           2022.
+[12] bgpq4 - BGP filtering automation tool. https://github.com/
+     bgp/bgpq4.                                                       [32] Yossi Gilad, Omar Sagga, and Sharon Goldberg. MaxLength
+                                                                           Considered Harmful to the RPKI. In CoNEXT, 2017.
+[13] BGPview. https://bgpview.io/".
+                                                                      [33] Phillipa Gill, Michael Schapira, and Sharon Goldberg. A Sur-
+[14] Bias in Internet Measurement Infrastructure.       https://
+                                                                           vey of Interdomain Routing Policies. ACM SIGCOMM CCR,
+     ripe84.ripe.net/archives/video/768/.
+                                                                           2014.
+[15] Henry Birge-Lee, Yixin Sun, Anne Edmundson, Jennifer Rex-
+     ford, and Prateek Mittal. Bamboozling certificate authorities    [34] Vasileios Giotsas, George Nomikos, Vasileios Kotronis, Pav-
+     with BGP. In USENIX Sec, 2018.                                        los Sermpezis, Petros Gigis, Lefteris Manassakis, Christoph
+                                                                           Dietzel, Stavros Konstantaras, and Xenofontas Dimitropou-
+[16] Tobias Bühler, Alexandros Milolidakis, Romain Jacob, Marco            los. O Peer, Where Art Thou? Uncovering Remote Peering
+     Chiesa, Stefano Vissicchio, and Laurent Vanbever. Oscillo-            Interconnections at IXPs. IEEE/ACM ToN, 2021.
+     scope: Detecting BGP Hijacks in the Data Plane, 2023.
+                                                                      [35] GRIP. https://grip.inetintel.cc.gatech.edu/.
+[17] Daily snapshots of historic PeeringDB data. https://
+     publicdata.caida.org/datasets/peeringdb/.                        [36] Aditya Grover and Jure Leskovec. node2vec: Scalable Feature
+                                                                           Learning for Networks, 2016.
+[18] CAIDA AS Rank. http://as-rank.caida.org/.
+                                                                      [37] Internet Health Report. https://ihr.iijlab.net/ihr/en-
+[19] Massimo Candela. BGPAlerter, 2019.
+                                                                           us.
+[20] Shinyoung Cho, Romain Fontugne, Kenjiro Cho, Alberto Dain-
+     otti, and Phillipa Gill. BGP hijacking classification. In TMA,   [38] IODA. https://ioda.inetintel.cc.gatech.edu/.
+     2019.                                                            [39] Internet Routing Registry. https://www.irr.net/.
+[40] Christopher Kruegel, Darren Mutz, William Robertson, and         [60] Kotikalapudi Sriram, Doug Montgomery, Danny R. McPher-
+     Fredrik Valeur. Topology-Based Detection of Anomalous BGP             son, Eric Osterweil, and Brian Dickson. Problem Definition
+     Messages. In Recent Advances in Intrusion Detection, 2003.            and Classification of BGP Route Leaks. RFC 7908, June 2016.
+[41] Craig Labovitz, Abha Ahuja, Abhijit Bose, and Farnam Jaha-       [61] Shen Su, Beichuan Zhang, Lin Ye, Hongli Zhang, and Nathan
+     nian. Delayed internet routing convergence. ACM SIGCOMM               Yee. Towards real-time route leak events detection. In IEEE
+     CCR, 2000.                                                            ICC, 2015.
+[42] Mohit Lad, Daniel Massey, Dan Pei, Yiguo Wu, Beichuan            [62] Yixin Sun, Anne Edmundson, Laurent Vanbever, Oscar Li,
+     Zhang, and Lixia Zhang. PHAS: A Prefix Hijack Alert System.           Jennifer Rexford, Mung Chiang, and Prateek Mittal. RAPTOR:
+     In USENIX Sec, 2006.                                                  Routing Attacks on Privacy in Tor. In USENIX Sec, 2015.
+[43] Matt Lepinski and Stephen Kent. An Infrastructure to Support     [63] Mattia Tantardini, Francesca Ieva, Lucia Tajoli, and Carlo Pic-
+     Secure Internet Routing. RFC 6480, February 2012.                     cardi. Comparing methods for comparing networks. Scientific
+[44] Matt Lepinski and Kotikalapudi Sriram. BGPsec Protocol                Reports, 2019.
+     Specification. RFC 8205.                                         [64] Cecilia Testart, Philipp Richter, Alistair King, Alberto Dainotti,
+[45] David Liben-Nowell and Jon Kleinberg. The link prediction             and David Clark. Profiling BGP Serial Hijackers: Capturing
+     problem for social networks. In CIKM, 2003.                           Persistent Misbehavior in the Global Routing Table. In IMC,
+[46] Mutually Agreed Norms for Routing Security (MANRS).                   2019.
+     https://www.manrs.org/about/.                                    [65] He Yan, Ricardo Oliveira, Kevin Burnett, Dave Matthews,
+[47] Not just another BGP Hijack. https://www.manrs.org/                   Lixia Zhang, and Dan Massey. BGPmon: A Real-Time, Scal-
+     2020/04/not-just-another-bgp-hijack/.                                 able, Extensible Monitoring System. In Cybersecurity Appli-
+                                                                           cations Technology Conference for Homeland Security, 2009.
+[48] MANRS blogpost: BGP security in 2021.    https://
+     www.manrs.org/2022/02/bgp-security-in-2021/.                     [66] Zhen Yang, Ming Ding, Chang Zhou, Hongxia Yang, Jingren
+[49] Do we still need the IRR? An analysis and comparison of               Zhou, and Jie Tang. Understanding Negative Sampling in
+     IRR data across databases. https://ripe85.ripe.net/                   Graph Representation Learning, 2020.
+     wp-content/uploads/presentations/71-10-RIPE85-                   [67] Muhan Zhang and Yixin Chen. Weisfeiler-Lehman Neural
+     IRRAnalysis.pdf.                                                      Machine for Link Prediction. In KDD ’17, 2017.
+[50] Alexandros Milolidakis, Tobias Bühler, Kunyu Wang, Marco         [68] Muhan Zhang and Yixin Chen. Link prediction based on
+     Chiesa, Laurent Vanbever, and Stefano Vissicchio. On the              graph neural networks. In Advances in Neural Information
+     Effectiveness of BGP Hijackers That Evade Public Route Col-           Processing Systems, 2018.
+     lectors. IEEE Access, 2023.
+                                                                      [69] Xin Zhang, Hsu-Chun Hsiao, Geoffrey Hasker, Haowen Chan,
+[51] University of Oregon.          Route Views Project, 2016.             Adrian Perrig, and David G. Andersen. SCION: Scalability,
+     www.routeviews.org/.                                                  Control, and Isolation on Next-Generation Networks. In S&P,
+[52] The    Interconnection       Database.              https://          2011.
+     www.peeringdb.com/.                                              [70] Zheng Zhang, Ying Zhang, Y. Charlie Hu, Z. Morley Mao, and
+[53] Richard Steenbergen. Examining the validity of IRR                    Randy Bush. ISPY: Detecting IP Prefix Hijacking on My Own.
+     data. https://archive.nanog.org/meetings/nanog44/                     IEEE/ACM Trans. Netw., 2010.
+     presentations/Tuesday/RAS_irrdata_N44.pdf.                       [71] Changxi Zheng, Lusheng Ji, Dan Pei, Jia Wang, and Paul Fran-
+[54] Philipp Richter, Georgios Smaragdakis, Anja Feldmann, Niko-           cis. A Light-Weight Distributed Scheme for Detecting IP Prefix
+     laos Chatzis, Jan Boettger, and Walter Willinger. Peering at          Hijacks in Real-Time. In ACM SIGCOMM, 2007.
+     Peerings: On the Role of IXP Route Servers. In IMC’14.
+[55] RIPE RIS Raw Data, 2016. https://www.ripe.net/data-
+     tools/stats/ris/.
+                                                                      Appendix
+[56] Pavlos Sermpezis, Vasileios Kotronis, Petros Gigis, Xenofontas
+                                                                      A A sample of the most suspicious cases
+     Dimitropoulos, Danilo Cicalese, Alistair King, and Alberto
+     Dainotti. ARTEMIS: Neutralizing BGP Hijacking Within a
+                                                                      We now describe three suspicious cases that DFOH detected
+     Minute. IEEE/ACM ToN, 2018.
+                                                                      in 2022. These cases illustrate that DFOH is exploitable, and
+[57] Tal Shapira and Yuval Shavitt. BGP2Vec: Unveiling the Latent     that reporting the suspicious cases and notifying the operators
+     Characteristics of Autonomous Systems. IEEE TNSM, 2022.
+                                                                      is beneficial. Note that we did not manually inspect all the
+[58] Xingang Shi, Yang Xiang, Zhiliang Wang, Xia Yin, and Jian-       reported cases in 2022. Thus, even more suspicious cases
+     ping Wu. Detecting Prefix Hijackings in the Internet with        might exist.
+     Argus. In IMC’22, 2012.
+                                                                      January 1, 2022:3 AS267548, a small Peruvian AS, appears
+[59] Aftab Siddiqui. KlaySwap – Another BGP Hijack Target-            between Sprint (AS1239), a Tier1 AS, and AS199524, a large
+     ing Crypto Wallets. https://www.manrs.org/2022/02/               content provider. However, AS267548 is not supposed to
+     klayswap-another-bgp-hijack-targeting-crypto-
+     wallets/.                                                           3 https://dfoh.uclouvain.be/cases/2022-01-01_1239_267548
+             Type                Categorie                  Name             Index   Description
+                                                      Degree centrality       0      Fraction of nodes connected to v
+                             Centrality Metrics      Closeness centrality     1      Average length of the shortest path between v and all other nodes
+              Node-based
+                                                     Harmonic centrality      2      Sum of the reciprocal of the shortest path distances from all nodes to v
+
+                                                   Average neighbor degree    3      Average degree of all the neighbors of v
+                           Neighborhood Richness
+                                                        Eccentricity          4      Max distance from v to all other nodes
+
+                                                    Number of Triangles       5      Number of triangles that include v
+                            Topological Pattern
+                                                       Clustering             6      Fraction of possible triangles including v that exist
+
+                                                           Jaccard            7      Similarity between the neighbors of v1 and v2
+              Pair-based
+
+
+
+
+                             Closeness Metrics          Adamic Adar           8      Closeness of v1 and v2 based on their shared neighbors
+                                                   Preferential attachment    9      Likelihood of v1 and v2 to be connected based on their degree
+
+                                 Distance               Shortest Path         10     Length of the shortest path between v1 and v2
+
+
+     Table 2: List of topological features used by DFOH along with their description. In the description, we consider for the
+     node-based features a node v in the AS topology whereas we consider two nodes v1 and v2 for the pair-based features.
+
+
+are aggregated in the box plots. Clearly, there is no sweet spot                       parses the aut-num objects of every AS in the routing reg-
+where an attack has high impact and low visibility. For Type-1                         istries. For now, DFOH only uses RADb as it is the only one
+and 2, impact is high but visibility is high too, and vice versa                       that makes available archive of its database. However, we
+for Type-3, 4 and 5. An attacker launching a forged-origin                             envision to use all the registries listed in [39] for real-time
+hijack thus often cannot prevent the AS path of the hijacked                           detection. An aut-num object related to ASX may include
+route to include a new AS link—giving DFOH the ability to                              (partial) information about the export and import policies of
+detect it.                                                                             ASX. These policies generally indicate the AS number or an
+                                                                                       as-set objects to/from which ASX is exporting/importing
+                                                                                       routes. In the case of an as-set object, DFOH recursively
+D Features computation (extension)                                                     parses the object (an as-set object can include other as-set
+                                                                                       objects) until it finds all the ASes in this as-set. With the IRR
+D.1 Topological features                                                               data, DFOH infers peering information that when combined
+                                                                                       with BGP data, allows identifying ≈10 000 more bidirectional
+Table 2 describes the ten topological features that DFOH uses
+                                                                                       links compared to with BGP data only.
+in its inference model. We explain how DFOH computes the
+feature values in §6.2.                                                                The bidirectionality feature is beneficial. Even after pars-
+                                                                                       ing the IRR data, the number of bidirectional links remains
+                                                                                       small compared to the total number of AS links. Yet, they are
+D.2 Bidirectionality feature                                                           worth the effort because they help DFOH to correctly classify
+Observing an AS link in each direction is a strong sign that it                        new links as legitimate in some particular peering scenar-
+is legitimate. In fact, consider the forged-origin-hijacked route                      ios. In fact, as the location of BGP collectors is typically
+with the AS path x1 , . . . , xn , v1 , v2 where v1 is the attacker and                skewed with many of them located in the core of the Inter-
+v2 the forged origin. v1 can only forge the upstream part                              net [14], many bidirectional links pertain to highly-connected
+of the AS path (i.e., the part on the right side of v1 ), and                          ASes. We observe the same effect on the bidirectional links
+has no control over the downstream part. Note that v1 could                            inferred from the IRR data, as network operators of the highly-
+prepend v2 , v1 on a route to another prefix that it owns to fake                      connected ASes tend to populate their IRR data more fre-
+a bidirectional link. However, the AS path would contain a                             quently than others. The bidirectional feature thus improves
+loop and would be either denied by BGP routers or easily                               the accuracy of DFOH upon peering scenarios that involve the
+detectable by BGP monitoring systems. A challenge when                                 highly-connected ASes—scenarios that are hard to accurately
+assessing the bidirectionality of the AS links is that the AS                          classify with the other features (see §E.1).
+topology derived from the AS paths in the BGP routes is                                The bidirectionality feature is safe. The IRR data has two
+incomplete (e.g., backup links can be missing). Thus, only                             drawbacks: It can be inaccurate and it is unverified. This is
+a small fraction of the links (≈25 000 , i.e., ≈4.8% of the                            not an issue for DFOH for two reasons. First, the number of
+visible links) are visible in both directions.                                                                                    2
+                                                                                       possible attacker and victim pairs is C74000    ≈ 2.74 billions
+Using the IRR data to supplement the BGP routes. DFOH                                  (74 000 is the number of ASes [22]) whereas the number of
+parses the IRR data to infer more peering links that are not                           inconsistencies in the IRR is by far lower [25]. Consequently,
+visible from the collected BGP routes. More precisely, DFOH                            the bidirectional links incorrectly inferred because of these in-
+                                               w/o AS-Path-based   w/o Bidirectionality   w/o Topological   w/o PeeringDB      All Features
+                                                TPR       FPR       TPR        FPR         TPR      FPR      TPR      FPR      TPR     FPR
+
+                              Stubs -
+                                               85.0 %    4.2 %     97.0 %      4.2 %      95.0 %   4.2 %    87.0 %   2.8 %    97.0 %   4.2 %
+                               Stubs
+                              Stubs -
+                                               74.0 %    3.1 %     82.0 %      4.1 %      83.0 %   3.1 %    76.0 %   6.2 %    83.0 %   3.1 %
+                               Tier1
+                        Transit/IXP/CDN-2 -
+                                               82.0 %    1.0 %     95.0 %      1.0 %      94.0 %   1.0 %    92.0 %   2.0 %    95.0 %   1.0 %
+                         Transit/IXP/CDN-3
+                        Transit/IXP/CDN-3 -
+                                               96.2 %    1.0 %     98.1 %      1.0 %      98.1 %   2.0 %    98.1 %   1.0 %    98.1 %   1.0 %
+                         Highly Connected
+                        Transit/IXP/CDN-4 -
+                                               58.0 %    15.6 %    83.0 %      6.2 %      83.0 %   12.5 %   82.0 %   12.5 %   84.0 %   6.2 %
+                               Tier1
+                       Large Customer Cone -
+                                               35.0 %    13.3 %    89.0 %     13.3 %      88.0 %   6.7 %    94.0 %   13.3 %   89.0 %   6.7 %
+                               Tier1
+
+                         All types of Links    74.0 %    2.1 %     90.9 %      2.0 %      90.6 %   2.3 %    86.2 %   2.9 %    90.9 %   1.9 %
+
+
+
+
+                   Table 3: Accuracy of DFOH for a few selected attack scenarios when all the features but one
+                   are used in the inference pipeline.
+
+
+consistencies only have very little impact on the performance                          used for real-time detection or to detect past forged-origin
+of DFOH. Second, as an attacker can only change the IRR data                           hijacks. We now differentiate the two cases.
+for its own organization, she can only fake one direction of                           DFOH detects past forged-origin hijacks in a few seconds.
+an AS link (attacker → victim)—the same direction as when                              We measured the time needed by DFOH to compute the fea-
+prepending the victim’s AS number in a BGP announcement.                               ture values for all the 18 000 synthetic cases used to evaluate
+Computing the feature values. Upon a historical request                                the overall performance of DFOH in 7.1. We use an Ubuntu
+for a day d, DFOH infers link bidirectionality from the AS                             20.04 LTS version server with 16 cores and 64 GB of memory.
+topology computed on day d (i.e., Gd,k ) combined with the                             DFOH needs 7510 seconds to compute the feature values (i.e.,
+BGP and IRR data collected during the days following d (up                             ≤ 1s for a single case). The topological features are the most
+to 30 days). Considering the following days allows DFOH to                             time consuming to compute (7155 seconds). Observe that
+find more bidirectional links that only appear e.g., once BGP                          the AS-path-pattern features are fast to compute, thus DFOH
+converges. Upon a real-time query on day d, DFOH considers                             remains fast even when it must compute these features for
+the graph Gd,k , and the IRR data collected on day d. Observe                          many different AS paths.
+that for the bidirectionality feature, Gd,k is a directed graph.                       DFOH detects new forged-origin hijacks in a few minutes.
+Computing the bidirectionality feature results in the following                        The only difference when running DFOH in real time per-
+1-dimensional feature vector.                                                          tains to the bidirectionality feature. In fact, a new peering
+                                                                                       interconnection may be visible in both directions from the
+                 B(d, v1 , v2 ) = [bidir(d, v1 , v2 )]                                 BGP routes only when BGP has converged. As the BGP con-
+                                                                                       vergence typically takes a few minutes [41], DFOH waits a
+Where bidir(d, v1 , v2 ) = 1 if the link (v1 , v2 ) is bidirectional                   few minutes (five, identically to ARTEMIS [56]) to let BGP
+at day d, else it is equal to zero.                                                    converge before computing the bidirectionality feature.
+
+E Detection speed                                                                      E.1 Discriminate power
+                                                                                           of classification features
+DFOH automatically downloads all the data and trains the in-
+ference model on a daily basis. Upon launching an inference,                           In this section, we examine the discriminatory power of the
+DFOH uses the inference model trained the day before. Thus,                            classification features used in DFOH. We show that our se-
+the detection speed depends on (i) the time to compute the                             lection is sound: Every feature is useful in at least one attack
+feature values for the link and AS paths given as input, and                           scenario. Besides, none of the features alone is able to detect
+(ii) the time to run the inference. The inference is fast (<1s)                        forged-origin hijack consistently and for all attack scenarios.
+because it relies on a simple random forest. However, the time                         Every feature category is useful. Table 3 shows the perfor-
+to compute the feature values depends on whether DFOH is                               mance of DFOH when one feature category is deactivated
+

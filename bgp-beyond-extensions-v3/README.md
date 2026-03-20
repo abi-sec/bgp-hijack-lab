@@ -118,6 +118,14 @@ why deaggregation **fails** against subprefix hijacks.
 Automated measurement of all attack types against all defense generations,
 producing a CSV table for your report charts.
 
+### 6. Peerlock-Style Defense (`apply_peerlock.sh` / `remove_peerlock.sh`)
+Adds an operator-style filter on R1 that blocks **forged-origin hijacks** from
+AS400 even when RPKI-ROV marks them as **Valid**.
+
+**Why this matters:** This gives you a practical “Generation 3” mitigation to
+contrast with ROV (origin-only) and with reactive deaggregation. It also
+connects directly to the forged-origin detection theme in NSDI'24 (DFOH).
+
 ---
 
 ## Integration Steps
@@ -200,6 +208,14 @@ bash scripts/forged_origin_attack.sh
 docker exec clab-bgp-hijack-r1 vtysh -c "show bgp ipv4 unicast"
 # Screenshot: forged route shows (V) VALID — ROV bypassed!
 bash scripts/stop_forged_origin.sh
+
+# ── Phase 5b: Peerlock-style defense against forged-origin ──
+bash scripts/apply_peerlock.sh
+bash scripts/forged_origin_attack.sh
+docker exec clab-bgp-hijack-r1 vtysh -c "show bgp ipv4 unicast 13.0.0.0/24"
+# Screenshot: forged route from AS400 no longer wins/appears
+bash scripts/stop_forged_origin.sh
+bash scripts/remove_peerlock.sh
 
 # ── Phase 6: MaxLength vulnerability ───────────────────────
 bash scripts/maxlength_demo.sh

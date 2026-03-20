@@ -1,10 +1,18 @@
 #!/bin/bash
+set -euo pipefail
+
 LAB="bgp-hijack"; R1="clab-${LAB}-r1"
 BOLD="\033[1m"; CYAN="\033[36m"; GREEN="\033[32m"; RESET="\033[0m"
 
 echo -e "${BOLD}================================================${RESET}"
 echo -e "${CYAN}[MITIGATION] Applying ROV-style filter on R1${RESET}"
 echo -e "${BOLD}================================================${RESET}"
+
+if ! docker inspect "$R1" >/dev/null 2>&1; then
+    echo -e "${CYAN}[FAILED]${RESET} Lab container not running (missing $R1)."
+    echo -e "Deploy first: sudo containerlab deploy -t topology.yaml"
+    exit 1
+fi
 
 docker exec -i "$R1" vtysh << 'EOF'
 configure terminal
@@ -32,7 +40,15 @@ echo ""
 echo -e "${GREEN}[OK] Mitigation applied and session reset${RESET}"
 echo ""
 echo -e "${CYAN}Verifying route-map is attached...${RESET}"
-docker exec "$R1" vtysh -c "show bgp neighbors 10.14.0.2" | grep -i "route-map"
+NEI_OUT=$(docker exec "$R1" vtysh -c "show bgp neighbors 10.14.0.2" 2>/dev/null || true)
+echo "$NEI_OUT" | grep -i "route-map" || true
+
+if echo "$NEI_OUT" | grep -qi "VALIDATE_R4_IN"; then
+    echo -e "${GREEN}[SUCCESS]${RESET} Mitigation is attached (VALIDATE_R4_IN)."
+else
+    echo -e "${CYAN}[FAILED]${RESET} Mitigation did not attach (VALIDATE_R4_IN not found)."
+    exit 1
+fi
 echo ""
 echo -e "${CYAN}Verifying prefix-list...${RESET}"
 docker exec "$R1" vtysh -c "show ip prefix-list"

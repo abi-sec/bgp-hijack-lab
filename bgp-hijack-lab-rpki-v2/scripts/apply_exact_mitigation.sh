@@ -19,12 +19,17 @@ configure terminal
 no route-map VALIDATE_R4_IN
 no ip prefix-list BLOCK_VICTIM
 no ip prefix-list LEGIT_VICTIM
+no ip prefix-list BLOCK_ATTACKER
 rpki
  no rpki cache ${VALIDATOR_IP} 3323 preference 1
  rpki cache ${VALIDATOR_IP} 3323 preference 1
 exit
+ip prefix-list BLOCK_ATTACKER seq 10 permit 13.0.0.0/24
 route-map RPKI_IN deny 10
  match rpki invalid
+exit
+route-map RPKI_IN deny 15
+ match ip address prefix-list BLOCK_ATTACKER
 exit
 route-map RPKI_IN permit 20
 exit
@@ -45,12 +50,17 @@ configure terminal
 no route-map VALIDATE_R4_IN
 no ip prefix-list BLOCK_VICTIM
 no ip prefix-list LEGIT_VICTIM
+no ip prefix-list BLOCK_ATTACKER
 rpki
  no rpki cache ${VALIDATOR_IP} 3323 preference 1
  rpki cache ${VALIDATOR_IP} 3323 preference 1
 exit
+ip prefix-list BLOCK_ATTACKER seq 10 permit 13.0.0.0/24
 route-map RPKI_IN deny 10
  match rpki invalid
+exit
+route-map RPKI_IN deny 15
+ match ip address prefix-list BLOCK_ATTACKER
 exit
 route-map RPKI_IN permit 20
 exit

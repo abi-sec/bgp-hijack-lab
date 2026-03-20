@@ -73,7 +73,7 @@ echo -e "\n${CYAN}[2/4] AS300 (victim) deploying prefix deaggregation...${RESET}
 echo "Announcing 13.0.0.0/25 and 13.0.0.128/25 to compete with attacker's /24"
 echo ""
 
-# Add kernel routes first so FRR can originate the /25 network statements
+# Add kernel routes first so FRR can originate the exact /25 network statements
 docker exec "$R3" ip route add blackhole 13.0.0.0/25 2>/dev/null || true
 docker exec "$R3" ip route add blackhole 13.0.0.128/25 2>/dev/null || true
 

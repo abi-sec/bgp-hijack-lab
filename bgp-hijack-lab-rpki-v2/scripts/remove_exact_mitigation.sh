@@ -25,6 +25,7 @@ router bgp 100
  exit-address-family
 exit
 no route-map RPKI_IN
+no ip prefix-list BLOCK_ATTACKER
 rpki
  ${NO_CACHE_CMD_R1}
 exit
@@ -43,6 +44,7 @@ router bgp 200
  exit-address-family
 exit
 no route-map RPKI_IN
+no ip prefix-list BLOCK_ATTACKER
 rpki
  ${NO_CACHE_CMD_R2}
 exit

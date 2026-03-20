@@ -1,0 +1,1217 @@
+                      ROV++: Improved Deployable Defense against BGP Hijacking
+
+
+         Reynaldo Morillo                    Justin Furuness               Cameron Morris                    James Breslin
+      University of Connecticut         University of Connecticut      University of Connecticut        University of Connecticut
+    reynaldo.morillo@uconn.edu           jfuruness@gmail.com          cameron.morris@uconn.edu          james.breslin@uconn.edu
+
+                                             Amir Herzberg                    Bing Wang
+                                        University of Connecticut      University of Connecticut
+                                        amir.herzberg@uconn.edu            bing@uconn.edu
+
+
+    Abstract—We study and extend Route Origin Validation                  Reports from NIST RPKI monitor [6] and a recent longi-
+(ROV), the basis for the IETF defenses of interdomain routing.        tudinal study [14] show that, despite a slow start, adoption of
+We focus on two important hijack attacks: subprefix hijacks           RPKI—esp. issuing of routing certificates and Route Origin
+and non-routed prefix hijacks. For both attacks, we show that,        Authorizations (ROAs)—has finally taken off, mainly since
+with partial deployment, ROV provides disappointing security          2018. Importantly, misconfigurations that were abundant in
+benefits. We also present a new attack, superprefix hijacks,
+which completely circumvent ROV’s defense for non-routed prefix
+                                                                      the past have become quite rare; there are also proposals for
+hijacks.                                                              further supporting (correct) deployments, e.g., [24]. As a result,
+                                                                      it appears that RPKI is coming of age, and can finally be
+    We then present ROV++, a novel extension of ROV, with             deployed by ROV to filter and drop invalid announcements.
+significantly improved security benefits even with partial adop-      Another recent study [57] shows that ROV has gone from
+tion. For example, with uniform 5% adoption for edge ASes             being non-existent two years ago to being used by more ISPs
+(ASes with no customers or peers), ROV prevents less than 5%
+                                                                      (e.g., AT&T [1]) to filter BGP announcements, which has led
+of subprefix hijacks, while ROV++ prevents more than 90% of
+subprefix hijacks. ROV++ also defends well against non-routed         to benefits for the ASes that use RPKI.
+prefix attacks and the novel superprefix attacks.                        Deployment of ROV is, however, still slow, as shown in
+    We evaluated several ROV++ variants, all sharing the im-          multiple works [29], [30], [62], [48], [19], [12], [25], [24].
+provements in defense; this includes “Lite”, software-only vari-      Furthermore, Gilad et al. [19] have shown that, until it is
+ants, deployable with existing routers. Our evaluation is based       widely deployed, ROV only leads to limited benefits.
+on extensive simulations over the Internet topology.
+                                                                          The security benefits of partially-deployed ROV are es-
+    We also expose an obscure yet important aspect of BGP,            pecially meager against subprefix hijacks; even for adopting
+much amplified by ROV: inconsistencies between the observable         ASes, the benefits are meager, unless almost all top ASes
+BGP path (control-plane) and the actual traffic flows (data-plane).
+                                                                      adopt ROV [19]. Note that an adopting AS will never use
+These inconsistencies are highly relevant for security, and often
+lead to a challenge we refer to as hidden hijacks.                    an invalid announcement; however, its traffic may still be
+                                                                      hijacked due to routing via a non-adopting transit AS, through
+                                                                      which the packets will be routed to the attacker because of
+                       I.   I NTRODUCTION                             the preference of more-specific routes. We refer to this as
+    BGP, the Internet’s inter-domain routing protocol, does not       data-plane hijack, since, although the routing table (control
+have authentication mechanisms, and suffers from frequent             plane) indicates a path to the correct origin, the traffic itself
+misconfigurations and attacks, often with wide-ranging im-            (data plane) is hijacked (see §II). Analyzing BGP routing data
+pacts, e.g., [47], [58], [2], [60], [5]. By far, the most common      provided by RouteViews [49], we see approximately 343K
+and effective attacks are prefix and subprefix hijacking, where       prefixes are shorter than /24 as of July 2020, which are
+a rogue or misconfigured autonomous system (AS) announces             susceptible to subprefix hijacks, endangering roughly 2B IP
+an IP address block (prefix or subprefix) not assigned to it.         addresses, approximately half of the Internet. For ROV to be
+                                                                      effective against data-plane subprefix hijacks, it requires an
+    The standardized defense against prefix and subprefix hi-         extremely widespread deployment, which is not expected in
+jacks is Route Origin Validation (ROV), which is expected to be       the foreseeable future.
+the first and most important application of the Resource Public
+Key Infrastructure (RPKI) [32], [7], [17], [61], [54]. ROV is             We also study the security of ROV against another impor-
+also the prerequisite for BGPsec [37], the other standardized         tant threat: non-routed prefix hijacking. Non-routed prefixes
+defense for BGP, and for other inter-domain routing security          are widely abused, esp. for spam, phishing and DDoS attacks;
+mechanisms, such as soBGP [63] and path-end validation [15].          see [60]. In addition, we introduce a novel variant of non-
+                                                                      routed prefix hijacks, involving superprefix announcement. We
+                                                                      show that ROV is less effective against non-routed prefix
+Network and Distributed Systems Security (NDSS) Symposium 2021        hijacks, and completely fails against the superprefix variant
+21-25 February 2021, Virtual                                          of this attack.
+ISBN 1-891562-66-5
+https://dx.doi.org/10.14722/ndss.2021.24438                             Better defenses? Introducing ROV++! We present
+www.ndss-symposium.org                                                ROV++, an extension of ROV, with much improved security
+against subprefix and non-routed hijacks, including the new             of the effectiveness of ROV and ROV++ against hijacking of
+superprefix hijacks. ROV++ defense is effective even with               non-routed prefixes, widely abused for malicious applications
+limited deployment, with improvements to both adopting and              such as spam and DDoS [60]. We also present the superprefix
+non-adopting ASes. We present several variants of ROV++,                hijack attack, a novel way to hijack a non-routed prefix,
+and evaluate them using large-scale simulations. The results            where the attacker announces a superprefix of the non-routed
+show clear improved security of ROV++ (compared to ROV),                prefix, together with (or even instead of) sending a hijack
+and tradeoffs between the different ROV++ variants.                     announcement for the non-routed prefix. ROV is quite helpless
+                                                                        against this attack; in contrast, all versions of ROV++ defend
+    We refer to several variants as Lite; these can be deployed         well against it, even with minimal deployment.
+very easily—using existing routers. These Lite versions have
+nearly the same security guarantees as their non-Lite versions,
+all of which are certainly much more secure than ROV.                   • Lite ROV++: software-only, readily-deployable design
+                                                                        (§VI). To facilitate implementation and fast adoption, we
+A. Main Contributions                                                   designed the ROV++ Lite versions, which can be readily im-
+                                                                        plemented and deployed using existing routers. Our extensive
+• Design of ROV++, an improved security extension to                    simulation results demonstrate that ROV++ Lite variants are
+ROV (§III). We identify common scenarios, in which ROV                  almost as effective as the corresponding non-Lite ROV++
+fails to prevent (data-plane) hijacking, and present correspond-        versions.
+ing extensions, ROV++, versions v1, v2 and v3, which prevent
+the hijacks. ROV++ v1 prevents interception for each prefix             • Recommendations (§VII). Our results seem to indicate a
+in one of two ways. The first is to select an announcement              clear recommendation for deployment: ROV++ v1 for routed
+received from a neighbor who did not send a hijacked an-                prefixes, and ROV++ v2 (or a variant) for non-routed prefix
+nouncement for a subprefix. If no such announcement exists,             hijacks. We recommend the Lite version for both cases since it
+the traffic sent to the hijacked subprefix is dropped. ROV++ v2         is easier to deploy and has similar performance as the non-Lite
+announces a path to the hijacked subprefix when the AS cannot           version.
+correctly route to it, in addition to blackholing this traffic
+(as in v1). This blackhole announcement competes with the
+subprefix hijack, and therefore may protect other ASes from             B. Related Work
+being hijacked. Note, however, that blackhole announcements
+may also increase the number of ASes whose packets cannot                   Security of inter-domain routing. Security vulnerabili-
+reach the subprefix. ROV++ v3 returns to the case handled               ties of inter-domain routing have long been recognized (see
+by v1, where an AS receives from one neighbor a subprefix               summary in [45], [28], [8], [23], [42], [52], and common
+hijack, and from another neighbor, an announcement with the             misconfigurations in [39]). A large number of security solu-
+correct origin for the prefix, which it then announces. In such         tions have been proposed [34], [63], [21], [3], [26], [55], [64],
+cases, to help other ASes reach the correct origin, the v3 AS           [31], [9], [59], [15], [53]; the effectiveness of BGP security
+will send preventive subprefix announcement, using the same             protocols are compared in [13], [20]. In addition, techniques
+path. Like the blackhole announcements of v2, the preventive            have been proposed to detect security problems, e.g., invalid
+announcement competes with the subprefix hijack. If these               multiple origin AS [65] and BGP serial hijackers [56]. IETF
+preventive announcements are successful, traffic would reach            has standardized approaches for secure inter-domain routing,
+the correct origin, hopefully improving reachability.                   namely, RPKI [32], [17], [61] and BGPsec [37], for origin
+                                                                        and path authentication, respectively. RPKI is the prerequisite
+• ROV++ security analysis (§IV). We show that an AS that                for more comprehensive security solutions, including BGPsec.
+adopts ROV++ does not introduce hijacks beyond what would               The studies in [5], [20], [35] show that RPKI can already
+have happened if the AS used BGP or ROV.                                provide significant benefits in improving inter-domain routing
+                                                                        security; path-security solutions (such as BGPsec) only pro-
+• Detailed evaluation of ROV and ROV++ (§V): To eval-                   vides moderate benefits over RPKI, especially under partial
+uate and fine-tune ROV++, we implemented a detailed BGP                 deployment [35], [15].
+simulator, incorporating BGP announcement and withdrawal
+mechanisms. Using large-scale simulations over empirically-                 RPKI deployment and security. A number of studies [29],
+derived datasets, we performed extensive measurements of                [30], [62], [48], [19], [12], [25], [24], [6] investigate the
+partial deployments of ROV and different variants of ROV++.             deployment status of RPKI, including the issuing of ROAs and
+Our experiments cover adopting ASes and non-adopting ASes               the adoption of ROV, and investigate how to improve adoption.
+(“collateral benefit”), results for subprefix hijacking and non-        A recent study [14] uses 8 years’ data to show that after a
+routed prefixes, data-plane and control-plane results, impact on        gradual start, RPKI has seen rapid adoption in the past two
+different categories of ASes (edge, top-tier, others), and more.        years and misconfigurations have become rare. As a result,
+The results show dramatic benefits of ROV++, esp. for early             the authors advocate using ROV to identify and drop invalid
+adoption scenarios. In particular, for adoption at just 5%, about       announcements to increase routing security. The study in [57]
+95% of the adopting edge ASes fall victim to subprefix hijacks          shows that ISPs (e.g., AT&T [1]) have started adopting ROV
+due to “collateral damage” with ROV, compared to only 5%                to filter BGP announcements recently.
+with all variants of ROV++.
+                                                                            Several works study security concerns with RPKI, e.g., the
+• Non-routed prefixes: evaluation of ROV and ROV++, and                 threat of misbehaving RPKI authorities [16], [22], [33]. These
+the superprefix-attack (§V). We present the first evaluation            concerns are orthogonal to our study.
+
+                                                                    2
+                                                                                    BGP   ROV     Attacker                Hijacked data flow
+         II.   M OTIVATING ROV++ BY U SE C ASES                                     Announcements Provider               Customer Peer Peer
+    Brief background on RPKI and ROV. RPKI facilitates                                                                             44
+the issuing, distribution, and authentication of (signed) Route                     44                                                   1.2/16, 78-88-99
+                                                                                           1.2/16, 88-99
+Origin Authorizations (ROAs). A ROA R is a signed tuple                                                                                  78     1.2/16, 88-99
+                                                                                                                                                1.2.3/24, 88-666
+R = (R.p, R.o, R.l), indicating that the AS R.o is authorized
+                                                                                             88               77                                88
+to be the origin of BGP announcements for prefix p ⊆ R.p,                                         1.2.3/24,
+                                                                              1.2/16, 99
+unless p is longer than R.l (in which case, we say that p is too                                  77-666           1.2.3/24, 666   1.2/16, 99         1.2.3/24, 666
+specific). A BGP announcement A for prefix A.p with origin
+A.o is considered valid if there is a properly-signed ROA R,                        99                             666                  99             666
+which indicates that A.o is authorized to announce A, i.e.,                   1.2/16                           1.2.3/24             1.2/16              1.2.3/24
+A.o = R.o, A.p ⊆ R.p and len(A.p) ≤ R.l. In contrast,                                           (a)                                             (b)
+
+an announcement A is invalid if a properly signed ROA R                 Figure 1.    Illustration of hidden hijacks with (a) BGP and (b) ROV.
+binds the announcement’s prefix to some origin (i.e., A.p ⊆
+R.p), but A.o 6= R.o or len(A.p) > R.l. The status of an
+announcement is unknown if it is neither valid nor invalid. We          some prefix are hijacked, even though all the BGP announce-
+focus on prefixes covered by correct ROAs [32], [36], [19],             ments received by the AS contain the correct origin. Hidden
+except for superprefix in §III-D for the reasons explained there.       hijacks are possible with ROV, ROV++ and even BGP. Fig. 1(a)
+                                                                        shows an example, where due to valley-free routing, AS 44
+    ROV: Sub-optimal security benefits? While ROV pro-                  will fall victim to a subprefix hijacking without receiving the
+vides origin authentication, it does not make the best use of           subprefix-hijack announcement. This is because AS 88 does
+the ROAs to improve security. In particular, ROV often fails            not send the subprefix-hijack announcement to AS 44, since
+to prevent data capture via subprefix hijacks; furthermore, it          AS 88 received this announcement from a peer, while AS 44
+often hides the subprefix hijacks, resulting in hidden hijacks          is a provider of AS 88; on the other hand, traffic from AS
+(see more details below), which are not visible from the routing        44 to the subprefix 1.2.3/24 will be hijacked anyway once
+tables, and may mislead network operators and hijack defenses           reaching AS 77. ROV may also create hidden hijacks, e.g.,
+to believe that the data is not hijacked. In this section, we           as in Fig. 1(b). In this example, the ROV adopting AS 78
+discuss several use cases that illustrate the suboptimal benefits       is hijacked and, because AS 78 drops the subprefix hijack
+of ROV, and how ROV++ provides better security benefits                 announcement, the subprefix hijack will be hidden from AS
+given the same ROAs. The detailed design of ROV++ and                   44, whose traffic to 1.2.3/24 will be routed to the attacker and it
+deployment/implementation issues are deferred to §III and §VI.          will not know the change in data flow. If AS 78 did not adopt
+    Valley-free and other routing assumptions. We make                  ROV, the hijack would have been visible at AS 44. Hidden
+the standard simplifying assumptions about the policy used by           hijacks are a significant obstacle in securing BGP without
+ASes. Most significantly, we assume valley-free (Gao-Rexford)           perfect knowledge of the data plane. We formally define hidden
+routing is used by all ASes [18]. That is, for any given prefix,        hijacks and describe hidden hijacks in ROV++ in §IV.
+an AS forwards the best announcement that it receives from its
+                                                                             Three versions of ROV++. In the following, we present
+customers to all the neighboring ASes (customers, providers
+                                                                        the three basic mechanisms of ROV++, which are incorporated,
+and peers); if none was received from customers, then it
+                                                                        progressively, into three versions (ROV++ versions v1, v2 and
+forwards the best announcement that it receives from a peer—
+                                                                        v3). ROV++ v1 has the first mechanism, ROV++ v2 has the
+or, if none, from a provider—but only to its customers. If, for
+                                                                        first two mechanisms, and ROV++ v3 has all three mecha-
+some prefix, there is more than one announcement with the
+                                                                        nisms. In the figures below, blue ovals and yellow rectangles
+“best” relationship, then the AS selects the one with a shorter
+                                                                        represent the ASes that run BGP and ROV, respectively. An
+AS-path; if the length is also the same, the AS uses some
+                                                                        AS that adopts ROV++ is represented as a green rectangle,
+tie-breaking rule. While existing studies have shown that real-
+                                                                        topped by a triangle containing the version number.
+world routing is not always valley-free [44], [38], [41], [4], we
+adopt this simple policy as in most existing studies on routing
+security (e.g. [13], [20], [19]) due to lack of better models.          A. Preventing Visible Hijacks (ROV++ v1)
+   We also assume that BGP selects one announcement, if                     The simplest type of data-plane hijack that is not prevented
+available, for every prefix, regardless of the existence of an-         by ROV occurs when a ROV-deploying AS receives, from
+nouncements for sub-prefixes and super-prefixes. In particular,         the same neighbor, both a valid announcement for a prefix
+we assume no prefix aggregation.                                        (say, 1.2/16) and an invalid announcement for a subprefix (say,
+                                                                        1.2.3/24); this is the scenario for both ASes 77 and 78 in
+    Note that as a result of these assumptions and the strong
+                                                                        Fig. 2(a). Suppose that this is either the only announcement
+connectivity of the Internet AS topology, if a prefix is an-
+                                                                        received for the prefix (as is the case for AS 77) or the best
+nounced by an AS, then an announcement for it would reach
+                                                                        announcement for the prefix (as is the case for AS 78). In both
+almost every other AS. In particular, if a prefix p is announced
+                                                                        cases, ROV will discard the invalid subprefix announcement
+only by one origin AS, say AS a, then almost all ASes
+                                                                        and use the prefix announcement—e.g., in Fig. 2(a), both ASes
+would receive the announcement for p with origin a. This is
+                                                                        77 and 78 will use the announcement received from AS 44.
+the case for the announcements sent in the attacks we focus
+                                                                        As a result, they will forward data packets with destination IP
+on: subprefix hijack, non-routed prefix hijack, and superprefix
+                                                                        addresses in 1.2/16 to AS 44. Since AS 44 is using plain BGP,
+hijack.
+                                                                        however, it will route these packets directly to the attacker, AS
+   Hidden hijacks occur when IP packets sent by an AS to                666. This is a data-plane hijack; it applies to all traffic sent
+
+                                                                    3
+                          BGP ROV
+                          ROV++
+                           Attacker         1.2.3/24, 44-666      44                                                   1.2.3/24, 44-666          44
+                           Blackhole        1.2/16, 44-99                                                              1.2/16, 44-99
+                         Hijacked data flow                                       666 1.2.3/24                                                                     666 1.2.3/24
+                                                  1.2.3/24, 44-666                                                                1.2.3/24, 44-666
+                         Dropped data flow
+                          Correct data flow
+                                                  1.2/16, 44-99     88                                                            1.2/16, 44-99    88
+                          Announcements      77                                                                              v1
+                      Provider Customer                          1.2/16, 88-86-99                                            77                 1.2/16, 88-86-99
+                               1.2/16,77-44-99                                                             1.2/16,77-44-99
+                                                           78                   86                                                        v1                  86
+                                                                                                                                          78
+                                                             1.2/16, 78-44-99
+                                                                                                                                             1.2/16, 78-88-86-99
+                                                                                      99                                                                                99
+                                                                                                                                                                             1.2/16
+                                                 11     12                             1.2/16                            11             12
+
+                                                       (a)                                                                                 (b)
+Figure 2. ROV++ v1 prevents visible data-plane subprefix hijacks. (a) ASes 77 and 78 adopt ROV, and yet their traffic to 1.2.3/24 is hijacked, (b) the hijack
+is prevented using ROV++ v1, by blackholing at AS 77 and by preferring a secure alternative path at AS 78. ASes 77 and 78’s adoption of ROV++ also protect
+their customers.
+
+
+from ASes 77 and 78, as well as from their customers (ASes                                           will only apply to packets sent from AS 77 itself; packets from
+11 and 12), to the subprefix 1.2.3/24.                                                               ASes 11, 32 and 33 will not reach AS 77 at all because AS
+                                                                                                     11 will forward them to AS 55, since routers always relays
+    Notice that AS 77 and AS 78 could have deduced that any                                          packets to the most specific (longest) prefix. As a result, their
+traffic to 1.2.3/24 routed to AS 44 would be hijacked, since                                         traffic will be hijacked.
+they also received from AS 44 the subprefix hijack announce-
+ment, and hence they “knew” that traffic to the subprefix would                                          ROV++ v2 introduces an additional mechanism, whose
+be hijacked. In other words, the data-plane subprefix hijack                                         goal is to prevent hijack of traffic from customer ASes by “at-
+was visible to the ROV-deploying AS. However, ROV fails to                                           tracting” it and then blackholing it. This is done by having the
+take this into account, and traffic to 1.2.3/24 is hijacked.                                         AS send BGP blackhole announcements, i.e., announcing the
+                                                                                                     blackholed prefix; these would “compete” with any subprefix
+    Alternative behaviors for AS 77 and AS 78 are depicted in                                        hijack announcements received from non-adopting ASes.
+Fig. 2(b), which show improved resilience to visible hijacks.
+AS 78 prefers a different path to the 1.2/16 prefix, which                                               For example, with ROV++ v2, AS 77 would send a subpre-
+goes via AS 88, thereby avoiding the hijack. AS 77 can only                                          fix announcement for the hijacked subprefix, thereby attracting
+route via AS 44—that is, it has no “safe route” that it could                                        such traffic away from the attacker and then blackholing it.
+prefer and reach the origin, AS 99; instead, it blackholes                                           Blackhole announcements are illustrated In Fig. 3(b), where
+the “doomed” traffic to 1.2.3/24. While this is not the most                                         AS 77 adopts ROV++v2, and sends blackhole announcement
+desirable outcome, as it results in the loss of this traffic,                                        for subprefix 1.2.3/24 to AS 11. As a result, traffic to IP
+it is still much better than having the traffic hijacked. The                                        addresses in the subprefix 1.2.3/24 from ASes 11, 32 and 33,
+blackholing and preference mechanisms by ASes 77 and 78                                              and of course from AS 77 itself, would be blackholed rather
+also benefit their customers (ASes 11 and 12, respectively).                                         than hijacked (as it was in Fig. 3(a)).
+    We use the term ROV++ v1 to refer to the extension                                                   Blackhole announcements against prefix hijack attacks?
+of ROV that provides a preference to a secure path and                                               Should a ROV++ v2 AS send blackhole announcements upon
+blackholing when no secure path exists. The actual design also                                       receiving prefix-hijack announcements for a given prefix?
+addresses more complex scenarios, explored in the next sec-                                          For instance, in Fig. 3(b), suppose AS 77 received a hijack
+tion. Note that ROV++ v1 differs from another route validation                                       announcement for prefix 1.2/16, should it send blackhole
+policy, Drop Invalid if Still Routable (DISR) [53]. In Fig. 2(b),                                    announcements for 1.2/16? Such announcements would com-
+if AS 78 deploys DISR, then it will drop the subprefix                                               pete with prefix-hijack announcements, which may result in
+announcement 1.2.3/24 since it can route traffic (going to                                           blackholing traffic that would otherwise be hijacked. How-
+1.2.3/24) using the less specific prefix, 1.2/16. However, in                                        ever, such announcements may also compete with legitimate
+that case, the traffic from ASes 78 and 12 to 1.2.3/24 will be                                       announcements for the prefix, which may result in blackholing
+routed using a shorter path, i.e., via AS 44, and hence hijacked.                                    traffic that would otherwise be routed successfully to the
+                                                                                                     destination. It seems preferable, therefore, not to send the
+B. Blackhole Announcements (ROV++ v2)                                                                blackhole announcement for prefix hijacking and only send
+                                                                                                     them for subprefix hijacking. In fact, even for subprefix hijack-
+    As discussed above, subprefix hijack announcements—                                              ing, blackhole announcements can, rarely, cause blackholing
+like every announcements of a prefix p sent only with a                                              of traffic that would otherwise be routed successfully to the
+single origin AS a—typically reach almost every AS in the                                            legitimate destination, as we show in §V.
+Internet. This holds even when a few of these announcements
+get dropped, as would happen with partial deployment of                                                  Note, however, that blackhole announcements should be
+ROV or ROV++ v1. For example, in Fig. 3(a), AS 77 drops                                              used for non-routed prefix hijacks, i.e., announcements of
+the subprefix-hijack announcement; however, its customers,                                           prefixes which are known to never be legitimately announced.
+e.g., AS 11, still receive the subprefix hijack announcement,                                        The RPKI specifications allow ROAs to identify non-routed
+since they are also connected via AS 55. And while AS 77                                             prefixes by using the special AS number of zero [27]. In this
+blackholes traffic sent to the hijacked subprefix 1.2.3/24, this                                     case, there is no risk of blackholing traffic that will otherwise
+
+                                                                                                 4
+                         BGP ROV
+                         ROV++
+                         Attacker          1.2.3/24, 44-666    44                                                           1.2.3/24, 44-666          44
+                         Blackhole         1.2/16, 44-56-99                                                                 1.2/16, 44-56-99
+                        Hijacked data flow                                       666 1.2.3/24                                                                        666 1.2.3/24
+                        Dropped data flow                   54                                                                                   54
+                         Announcements          v1                                                                                  v2
+                     Provider Customer
+                                                77                                                                                  77
+                                                    55                                                        1.2/16,77-44-56-99          55
+                             1.2/16,77-44-56-99                             56                                1.2.3/24, 77-44-666        1.2.3/24, 55-54-44-666 56
+                                                   1.2.3/24, 55-54-44-666
+                                                                                                                                         1.2/16, 55-54-44-56-99
+                                              11   1.2/16, 55-54-44-56-99                                                        11
+                                                                                                        1.2/16,11-77-44-56-99               1.2/16,11-77-44-56-99
+                                                                                                        1.2.3/24, 11-77-44-666              1.2.3/24, 11-77-44-666
+                                        32                                         99 1.2/16                                                   v2                      99 1.2/16
+                                                         33                                                              32                    33
+                                                      (a)                                                                                  (b)
+Figure 3. ROV++ v2: Blackhole announcements protect downstream ASes. (a) AS 77 runs ROV++ v1 and blackholes the traffic to 1.2.3/24. However, the data
+from ASes 11, 32 and 33 to 1.2.3/24 is routed via AS 55, and hijacked. (b) AS 77 runs ROV++ v2; it sends a blackhole announcement to AS 11, which protects
+downstream ASes: traffic from ASes 11 and 32 to 1.2.3/24 is attracted to AS 77 and dropped there; AS 33 directly blackholes the traffic going to 1.2.3/24.
+
+
+reach the correct destination, and therefore blackholing should                                     subprefix blackhole announcement. The lack of a blackhole
+be applied. Hijacking non-routed prefixes is a common attack,                                       announcement from AS 33, however, may cause AS 33’s
+allowing the use of such IP address blocks for unauthorized                                         customers to fall victim to the attack. Specifically, consider AS
+purposes such as sending spam, phishing, and Denial-of-                                             22, a customer of AS 33 as well as of AS 54. AS 22 receives
+Service traffic; see [60]. As we shall see in §V, ROV++ v2                                          from both ASes 54 and 33 a legitimate prefix announcement
+is significantly more effective than ROV in mitigating non-                                         for 1.2/16. However, AS 22 also receives from AS 54 the
+routed prefix hijacks.                                                                              hijacked subprefix announcement for 1.2.3/24, since all ASes
+                                                                                                    along this path (44-53-54) use BGP. Following the longest
+    Contents of blackhole announcements. The goal of                                                prefix matching, AS 22 will therefore route traffic to the
+blackhole announcements is to “compete” with the subprefix                                          subprefix 1.2.3/24 via AS 54, causing this traffic to be hijacked.
+hijack announcements by attracting and blackholing traffic that
+would otherwise be hijacked. To conform to BGP and avoid
+                                                                                                        In ROV++ v3, we introduce an additional mechanism,
+any unexpected side-effects, this is done by forwarding the
+                                                                                                    called preventive announcements, whose goal is to “compete”
+subprefix hijack announcement, just as it would have been
+                                                                                                    with the hijack announcement, much like the blackhole an-
+forwarded if the AS has simply used BGP without ROV or
+                                                                                                    nouncements of v2, but do it also when there seem to be a
+ROV++.
+                                                                                                    route to the legitimate origin (i.e., no need to blackhole). In a
+    Blackhole announcements: when and to whom to send?                                              preventive announcement, an ROV++ v3 AS, e.g. AS 33, sends
+In ROV++ v2, blackhole announcements are only sent to the                                           a BGP announcement for the hijacked subprefix; the AS-path
+customers, as per the valley-free rule [18], and only when                                          in this announcement, however, will be a path to the legitimate
+receiving a subprefix hijack announcement from peers or                                             origin of the prefix that contains the hijacked subprefix. Since
+providers, not from customers. The rationale is that customers                                      both the preventive and hijacked announcements are for the
+are usually connected only to a few providers, and therefore,                                       same subprefix, the preventive announcements may prevent
+when a provider blocks a hijack announcement from a cus-                                            some traffic interception.
+tomer, there is a fair chance of blocking the hijacks for other
+customers, even without sending a blackhole announcement to                                             This is illustrated in Fig. 4(b), where AS 33 deploys
+them. Our evaluation (§V) confirms the advantage of the above                                       ROV++ v3. As before, AS 33 routes correctly the entire 1.2/16
+restrictive rule.                                                                                   prefix, via AS 87; however, now AS 33 also sends a preventive
+                                                                                                    announcement to AS 22, with the subprefix 1.2.3/24 and the
+    ROV++ v2a: aggressive non-routed blackhole an-                                                  path 33-87-99 routing back to the authorized origin of the
+nouncements. ROV++ v2a is a “more aggressive” version of                                            prefix. AS 22 also receives the subprefix hijack announcement
+ROV++ v2 that, upon receiving non-routed prefix hijacks, from                                       from AS 54, but prefers the route 33-87-99, since it is shorter.
+any neighbor, sends a corresponding blackhole announcement                                          As a result, its traffic reaches the correct origin (AS 99), and
+according to export policy. The reasoning for the “aggressive”                                      is neither hijacked nor blackholed.
+v2a is that non-routed prefixes should not be announced at all,
+and hence there is no danger of competing with the legitimate                                           For similar reasons as explained for blackhole announce-
+announcement. Our evaluation in §V confirms that ROV++ v2a                                          ments, preventive announcements are only generated when
+is significantly more effective than ROV++ v2, and surely than                                      receiving a subprefix hijack announcement from peers or
+ROV, in defeating non-routed prefix hijacks.                                                        providers, and are only sent to customers. Additional mech-
+                                                                                                    anisms are included to constrain the sending of preventive
+C. Preventive Announcements (ROV++ v3)
+                                                                                                    announcements to avoid routing loops; see more details in §III.
+    Consider an ROV++ v2 AS that receives only a legitimate                                         Since a preventive announcement is created by a ROV++ v3
+prefix announcement from one provider and a subprefix hijack                                        AS, without actually receiving such an announcement from
+announcement from another provider; see, for example, AS                                            the origin, it will not work when certain path authentication
+33 in Fig. 4(a). Since AS 33 has a valid path, via AS 87,                                           mechanisms (e.g., BGPsec [37]) are in place; we discuss the
+for the entire 1.2/16 prefix, it will obviously not send a                                          pros and cons of ROV++ v3 in more detail in §VII-A.
+
+                                                                                                5
+                         BGP ROV
+                         ROV++
+                                                                    44                666                                                             44                666
+                         Attacker
+                        Hijacked data flow             53          1.2.3/24, 44-666   1.2.3/24                                           53          1.2.3/24, 44-666   1.2.3/24
+                        Correct data flow                          1.2/16, 44-99                                                                     1.2/16, 44-99
+                         Announcements
+                     Provider Customer       54                        87                                                     54                         87
+                                                            v2                                                                                v3
+                                                            33 1.2/16, 87-99                                                                  33 1.2/16, 87-99
+
+                                                              1.2/16, 33-87-99                                                                 1.2.3/24, 33-87-99
+                              1.2.3/24, 54-53-44-666                                          99                1.2.3/24, 54-53-44-666                                          99
+                                                                                                                                               1.2/16, 33-87-99
+                              1.2/16, 54-53-44-99                                                               1.2/16, 54-53-44-99
+                                                        22                                  1.2/16                                        22                                  1.2/16
+
+                                                        (a)                                                                               (b)
+Figure 4. ROV++ v3: Preventive announcements help to route data to the legitimate origin. (a) Although AS 33 runs ROV++ v2, the traffic from AS 22
+to 1.2.3/24 is still routed via AS 54, following the longest-prefix routing rule, and hence is hijacked. (b) When AS 33 runs ROV++ v3 and sends preventive
+announcements to AS 22, the traffic of AS 22 to 1.2.3/24 is routed via AS 33 (shorter path) and reaches the legitimate origin.
+
+
+         III.   ROV++: G OALS , M ODEL AND D ESIGN                                                       to have successful connection rates not much worse than those
+                                                                                                         of ROV, and preferably better.
+   In this section, we first describe the design goals of ROV++
+and the attack model, then describe the detailed design of the                                           Goal 3 (Do no harm 2: maintain successful connections). Let
+ROV++ mechanisms.                                                                                        PROV (x) (resp. PROV ++ (x)) be the probability that traffic
+                                                                                                         from a random edge AS reaches the correct origin during a
+                                                                                                         subprefix hijack, where x is the percentage of the ASes that
+A. Design Goals                                                                                          adopt ROV (resp. ROV++). Then, PROV (x) / PROV ++ (x)
+   The first goal is simple: the adoption of ROV++ by an AS                                              for all (or most) values of x.
+should not cause hijack of traffic from that AS, beyond what
+would have happened if the AS used BGP or ROV.                                                              Finally, we mention two non-quantifiable yet important
+                                                                                                         goals: simplicity and ease of deployment.
+Goal 1 (Do no harm 1: no hijack due to ROV++). If traffic
+from AS X to prefix p is hijacked when AS X deploys ROV++,                                               Goal 4 (Keep It Simple). ROV++ design should be as simple
+then this traffic would also have been hijacked if X used plain                                          as possible.
+BGP or ROV.                                                                                              Goal 5 (Easy to Deploy). ROV++ design should be easy to
+                                                                                                         implement and deploy.
+    The second goal considers the impact of one AS’s adoption
+of ROV++ on hijacks of traffic from other ASes. It would have                                               In the above, Goals 1 to 3 are security-oriented goals, while
+been great if we could extend the first goal, and require that                                           Goals 4 and 5 are system-oriented goals.
+adoption of ROV++ by any AS X would not cause hijack of
+traffic from any other AS. However, due the complexity of                                                    ROV++ meets the goals. In §IV, we prove that ROV++
+BGP relationships and Internet topology, this extended goal                                              achieves Goal 1 (see Corollary 1). Our simulation results in
+seems hard to achieve for any reasonable policy; indeed, it                                              §V show that Goals 2 and 3 are also achieved. In §VI we
+does not hold for ROV. Therefore, we set a more modest goal,                                             present the Lite versions of ROV++, which meet the system
+which only requires improvement in the hijack probability for                                            goals. The “do no harm” property achieved by ROV++ is
+a random edge AS. We require this to hold for any rate of                                                with respect to what is listed in Goals 1 and 3; ROV++ may
+adoption, although we are especially interested in the impact                                            lead to non-necessary disconnections (e.g., due to blackhole
+in the early adoption phase.                                                                             announcements in ROV++ v2).
+Goal 2 (Prevent hijacks (on average)). Let x be the percentage
+of ASes adopting ROV++, and let PHijack,SubP (x) (resp.                                                  B. The Prefix-hijack Attack Model
+PHijack,N onR (x)) be the probability that traffic from a random
+edge AS is hijacked by a subprefix hijack (resp. non-routed                                                  Many studies in cryptography and network security are
+prefix hijack). Then both probabilities should monotonically                                             designed against arbitrary attack strategies and often assume
+decrease in x. Furthermore, for any given x, PHijack,SubP (x)                                            very powerful attack models such as MitM. ROV and ROV++
+and PHijack,N onR (x) should be less than the corresponding                                              focus on the prefix-hijack attack model, a more specific attack
+values for ROV.                                                                                          model that allows only a restricted set of attacker operations.
+                                                                                                         We next explain this attack model and justify why we adopt
+                                                                                                         it for this study.
+    The previous goal focuses on reducing the probability of
+hijacks. However, it does not necessarily translate to increase in                                           The prefix-hijack attack model considers an attacker who
+the probability of successful connections to the correct origin,                                         controls an AS. The attack method that the attacker exploits
+since some ASes may be disconnected from some prefixes.                                                  is to send misleading BGP announcements from this AS to
+Indeed, ROV++ would often only be able to prevent hijack,                                                other ASes with whom it has a connection (and relationship).
+but it may not be able to find a secure path to the correct                                              The misleading BGP announcements incorrectly indicate the
+origin. We therefore consider a more modest, no-harm goal:                                               attacking AS as the origin of an IP prefix p, not assigned to
+
+                                                                                                     6
+the attacker; the main evaluation metric is the amount of traffic             Markings in blackhole announcements. A ROV++
+to prefix p that the attacker succeeds in intercepting. We do             AS marks a blackhole announcement, allowing subsequent
+not consider impersonation and MitM attacks since there are               ROV++ ASes to be aware that the traffic would be blackholed
+widely-deployed mechanisms to prevent them, e.g., IPsec and               (dropped). Marking should be transitive, i.e., be propagated
+TLS.                                                                      also by ASes which use ROV or plain BGP, to reach ROV++
+                                                                          ASes without requiring direct connections between ROV++
+    The main reason that we do not consider other attacks                 ASes. This can be done in different ways; the best may be
+such as path manipulation or route leakage is that, if not                to use an optional transitive BGP attribute [46]. A blackhole
+prevented, prefix hijacks are more effective than other attacks.          announcement is treated mostly like an invalid announcement
+Specifically, in other attacks, by definition, the attacker will          (see details later).
+not be the origin, and hence the announcement it sends
+will contain AS-path of length at least two, while a prefix                   Markings in preventive announcements. Preventive an-
+hijack for the same prefix will send announcements with                   nouncements are marked similarly so that they can be identi-
+AS-path containing only the attacking AS. Since ASes give                 fied by ROV++ ASes, and not flagged as invalid and dropped
+preference to announcements with shorter AS-path, the prefix-             by the ROV mechanism. For example, suppose AS 99 owns the
+hijack announcements are more likely to attract the traffic to            IP address block 1.2/16, and the issued ROA has the maximum
+the prefix, compared to similar announcements with longer                 length of 16. Then a preventive announcement of 1.2.3/24 with
+AS-path (e.g., due to path manipulation or route leakage). The            the origin as AS 99 will be flagged as invalid (since 24 is
+fact that prefix hijack is a more effective attack was confirmed          larger than the maximum length in the ROA) if not marked;
+by simulations, e.g., in [15].                                            see the full version [43] on detailed examples that show the
+                                                                          advantage of marking preventive announcements. A preventive
+    Within the prefix-hijack attack model, we focus on pro-               announcement is treated mostly like a legitimate announcement
+tecting prefixes protected by a ROA. Namely, we assume that               (see details later).
+an AS that deploys ROV or ROV++ can identify prefix/sub-
+prefix hijacks reliably and correctly through ROAs. This is a                 Handling incoming announcements. Algorithm 1 sum-
+reasonable assumption given that misconfigurations of ROAs                marizes how ROV++ handles incoming announcements. For
+have become rare [14]; dealing with ROA failures is out of                clarity, it does not include the handling of withdrawal an-
+the scope of this paper.                                                  nouncements, which are handled in the same manner as in
+                                                                          BGP. Only the most essential procedures are defined in Algo-
+C. Detailed Design                                                        rithm 1; the others are defined in Appendix A. The description
+                                                                          is for ROV++ v3, which includes all the three mechanisms in
+    As illustrated in §II, a basic mechanism in ROV++ (all                ROV++; the operations in ROV++ v1 and v2 are (mostly) a
+three variants) is to support data-plane blackholing and prefer-          subset, as marked in Algorithm 1.
+ence to safer paths. For this purpose, each ROV++ AS identi-
+fies and maintains holes for incoming announcements, defined                   Consider an incoming announcement ann. We consider two
+as follows. Suppose an AS X receives a valid announcement                 cases. (i) The announcement ann is determined as valid or
+ann and an invalid announcement ann0 , both from the same                 unknown by ROV, i.e., indicated by PASS ROV(ann) as being
+neighbor, and ann0 has a subprefix (i.e., ann0 .pre ⊂ ann.pre),           true, or it is a preventive announcement. In this case, the router
+then X marks that ann has a hole to indicate that if it uses the          uses U PDATE H OLE(ann, H) to check whether any hole needs
+path in ann to route data to subprefix ann0 .pre, then the data           to be added to ann. After that, ann is added to A, and the
+will be hijacked. Whenever possible, X chooses a path that                router uses D ECIDE B EST ROUTE to find the best route. If the
+has no hole (i.e., prefer safe path), and blockholes subprefix            best route is a new route (i.e., differs from the currently used
+ann0 .pre if no safe path is available.                                   best route), then the router needs to perform a sequence of
+                                                                          actions, including removing blackhole, blackhole or preventive
+    Specifically, X maintains a table of invalid announcements,           announcements that were set up or sent due to the old route,
+denoted as H. Each announcement hole ∈ H includes the                     and actions for the new route. For the new route, if there
+prefix hole.pre and the neighbor AS, hole.from, from which                is no alternative safe route for a subprefix, the router sets
+hole was received. Let A denote the set of non-invalid an-                up a local blackhole for that subprefix; it further creates a
+nouncements (i.e., classified as valid or unknown by ROV).                blackhole announcement for that subprefix if it is received from
+Similarly, each announcement ann ∈ A has ann.pre and                      a provider or peer, and sends it to customers (in ROV++ v2 or
+ann.from, with three additional attributes: ann.rel that rep-             v3) or according to export policy (in ROV++ v2a). Otherwise,
+resents the relationship between ann.from and X (i.e., peer,              i.e., there is a safe route, the router decides whether to send
+provider, or customer), ann.path that represents the AS-path,             a preventive announcement through S END P REVENTIVE A NN
+and ann.hole that represents the set of holes in ann.pre. Initially       (to be described later). (ii) The announcement ann is an
+ann.hole is empty, and holes will be added to ann.hole once               invalid or blackhole announcement. In this case, the router
+identified (see details below).                                           invokes U PDATE H OLE (A, ann), which updates the holes for
+                                                                          all the announcements in A based on ann. If the holes of an
+    In ROV++, the incoming announcements can be standard
+                                                                          announcement a ∈ A have been updated, then the router uses
+BGP announcements (update, withdraw), blackhole announce-
+                                                                          D ECIDE B EST ROUTE to find the best route for prefix a.pre.
+ments (in ROV++ v2 and v3), or preventive announcements (in
+ROV++ v3). In the following, we first describe the marking of                In the above, the procedure U PDATE H OLE takes two sets,
+blackhole and preventive announcements so that a ROV++ AS                 one containing valid announcements whose holes need to
+can identify them (If only v1 is used, this aspect is not needed).        be updated and the other containing one or more invalid
+We then describe the handling of an incoming announcement.                announcements. In the procedure, each valid announcement a
+
+                                                                      7
+                                                                    is checked with each invalid announcement b. If a.pre contains
+Algorithm 1 ROV++ Handling Incoming Announcements.                  b.pre (i.e., b.pre ⊂ a.pre), and the two announcements
+ 1: procedure I NCOMING A NNOUCEMENT (ann)                          have the same upstream AS (i.e., a.from = b.from), then
+ 2: if PASS ROV (ann) or I S P REVENTIVE (ann) then                 a.hole = a.hole ∪ b.
+ 3:    U PDATE H OLE (ann, H)                                            The procedure F IND B EST applies a set of rules, in a
+ 4:    A = A ∪ ann                                                  priority order, to find the best route for a destination prefix.
+ 5:    D ECIDE B EST ROUTE (ann.pre)                                We use the following priority rules: first based on relationships
+ 6: else                                                            (i.e., prefer the route from a customer over that from a peer
+ 7:    // invalid or blackhole announcement                         over that from a provider), and then prefer the route with no
+ 8:    H = H ∪ ann                                                  (or least) holes. If there are still ties, prefer the route with
+ 9:    U PDATE H OLE (A, ann)                                       shortest path. The rationale is that this order first considers
+10:    if ∃a ∈ A s.t. a.hole has been updated then                  the economic incentives of the ASes, and then security, and
+11:       D ECIDE B EST ROUTE (a.pre)                               performance last.
+12:    end if
+13: end if                                                              The procedure S END P REVENTIVE A NN decides whether to
+14: end procedure                                                   send a preventive announcement or not in ROV++ v3. This is
+                                                                    a bit delicate; ROV++ v3 uses multiple measures to prevent
+15: procedure U PDATE H OLE (annSet, holeSet)                       unsafe paths from propagating in the network, which may
+16: for ∀a ∈ annSet and ∀b ∈ holeSet do                             harm convergence or cause loops. First, when a ROV++ v3
+17:   if b.pre ⊂ a.pre and a.f rom = b.f rom then                   AS sends an announcement, it includes a transitive field to
+18:      a.hole = a.hole ∪ b                                        indicates whether the announcement contains holes or not,
+19:   end if                                                        which can be recognized by other ROV++ v3 ASes. Second, an
+20: end for                                                         ROV++ v3 AS X only generates a preventive announcement
+21: end procedure                                                   about a subprefix subp if (i) X receives a subprefix hijack an-
+                                                                    nouncement subp from a provider or peer, and (ii) X receives a
+                                                                    legitimate announcement pre, s.t. subp ⊂ pre, that contains no
+22: procedure D ECIDE B EST ROUTE (pre)                             holes (as indicated by the transitive field) from some neighbor
+23: Let u ∈ A be the currently used route for prefix pre; set       AS Y that did not send subp to X. Third, X sends the
+   to NULL if no route exists                                       preventive announcement only to customers from which it has
+24: a = F IND B EST (pre)                                           not received pre, to prevent routing loops. Suppose a customer
+25: if a 6= u then                                                  of AS X, say AS Z, receives a preventive announcement from
+26:    U SE (a)                                                     X on subp, and later sends an announcement with prefix pre to
+27:    if u.hole 6= ∅ then                                          X. Then X will withdraw the preventive announcement from
+28:       for all hole ∈ u.hole do                                  Z, and Z will in turn withdraw it from other ASes.
+29:          R EMOVE B LACKHOLE (hole)
+30:          // Only for ROV++ v2 and v3                            D. Non-routed Prefix and Superprefix Hijacks
+31:          W ITHDRAW B LACKHOLE A NN (hole)
+                                                                        So far, the ROV++ design focuses on mitigation of sub-
+32:       end for
+                                                                    prefix hijacks. We now discuss minor extensions that have
+33:    else
+                                                                    significant impact on other important hijack scenarios.
+34:       // Only for ROV++ v3
+35:       for all hole ∈ H s.t. hole.pre ⊂ u.pre do                     Non-routed prefix hijacks. These are hijacks on IP ad-
+36:          W ITHDRAW P REVENTIVE A NN (u, hole.pre)               dresses that are normally non-routed, i.e., not part of any
+37:       end for                                                   (legitimately) announced IP prefix. Somewhat surprising, there
+38:    end if                                                       are plenty such IP addresses, typically owned by organizations
+39:    if a.hole 6= ∅ then                                          that were allocated large address blocks in the early days
+40:       for all hole ∈ a.hole do                                  of the Internet, and never got to utilize them. As shown
+41:          B LACKHOLE (hole)                                      in [60], non-routed prefixes are often hijacked, and then used
+42:          // Only for ROV++ v2 and v3                            to launch different attacks such as spam and DDoS. The main
+43:          if I S PARENT O R P EER (hole.from) then               motivation of the attackers is to foil blacklists: once one such
+44:             S END B LACKHOLE A NN (hole)                        hijacked prefix is blacklisted, they just move to another one.
+45:          end if                                                 Indeed, a significant fraction of the non-routed address blocks
+46:       end for                                                   is blacklisted at any given moment, due to such attacks.
+47:    else
+48:       // Only for ROV++ v3                                          RPKI allows ROA to specify origin AS zero to signal a
+49:       for all hole ∈ H s.t. hole.pre ⊂ a.pre do                 non-routed prefix so that ROV ASes will drop these announce-
+50:          S END P REVENTIVE A NN (a, hole.pre)                   ments, and thereby not send packets to the non-routed prefixes,
+51:       end for                                                   as desired. This completely prevents hijacking of packets sent
+52:    end if                                                       by a ROV-deploying AS to non-routed prefixes. ROV also
+53: end if                                                          provides some defense to non-adopting ASes, but this defense
+54: end procedure                                                   is quite limited. We present the first evaluation of the defense
+                                                                    that partial-adoption of ROV provides to non-adopting ASes
+                                                                    against non-routed prefix hijacks (see §V), which shows a
+
+                                                                8
+significant improvement, almost linearly as adoption of ROV              of ROV, this announcement is dropped. However, like almost
+grows. However, we next explain how a simple adaptation                  all ASes, this AS will almost surely receive the superprefix
+of the ROV++ blackhole announcement mechanism provides                   (1.2.0/22) announcement. As a result, the AS will send packets
+much improved security (to non-adopting ASes).                           with destination IP in 1.2.3/24 to its provider, and from there,
+                                                                         these packets will be routed to the attacker, since the provider
+    ROV++: non-routed blackhole announcements. To bet-                   is using the hijacked announcement.
+ter defend against non-routed hijacks, ROV++ sends black-
+hole announcements as follows. An AS that receives an                        Defenses. The blackhole mechanism makes ROV++ adopt-
+announcement for a prefix with non-routed ROA (identified as             ing ASes immune to this improved attack. It is possible to foil
+origin AS being zero [27]) sends the corresponding blackhole             the superprefix attacks by issuing non-routed ROAs (origin
+announcement, following either the v2 or v2a rules. This                 AS set to zero) for superprefixes of ROA-protected prefixes.
+announcement will now compete with the attacker’s non-                   However, this may cause any unknown prefix covered by the
+routable prefix hijack, preventing hijack of traffic from more           superprefix to be considered invalid, and hence needs to be
+non-adopting ASes. Our evaluation in §V confirms the benefits            applied carefully.
+of this improvement.
+    In superprefix hijack of non-routed prefix, an attacker                               IV.   S ECURITY A NALYSIS
+announces a superprefix of a non-routed prefix. Since the                    It is challenging to identify the exact properties of rout-
+prefix is not announced, then packets whose destination IP               ing security mechanisms, including ROV++, especially under
+address is in the non-routed prefix, will be routed following the        partial deployment. We present some preliminary results, and
+superprefix announcement directly to the attacker. This attack           leave further analysis for future work.
+circumvents ROV; if there is no ROA for the superprefix, which
+is the common case, then ROV will announce the superprefix,                  As mentioned earlier, hidden hijacks have significant impli-
+and the attack succeeds. For example, suppose prefix 1.2.3/24            cations on ROV and ROV++. We next formally define hidden
+is non-routed and protected by a ROA with origin AS 0.                   hijacks and visible hijacks, and then compare the extent of
+An attacker, AS 6, wants to hijack 1.2.3/24, and therefore               hidden/visible hijacks when deploying ROV++ versus ROV,
+announces superprefix 1.2.0/22. It is reasonable to assume that          and show that ROV++ achieves better security than ROV and
+no other AS announces 1.2.0/22 and no corresponding ROA                  BGP.
+was published (due to concerns that issuing such a broad ROA
+may invalidate legit announcements of many prefixes that are                 Definition (visible and hidden hijacks). Suppose that an
+not yet covered by ROAs [19]). Using ROV (and BGP), the                  AS A0 selects the path (A1 , . . . , An ) for routing packets for
+announcement of 1.2.0/22 is likely to reach almost all ASes,             the entire prefix pre (no subprefixes). If A0 sends a packet to
+including ROV ASes and their customers. As a result, AS 6                an IP address x ∈ pre, and this packet does not reach An ,
+will successfully hijack almost all traffic sent to 1.2.3/24 or          then we say that it was hijacked. If A0 received from A1 an
+any other unannounced subprefix of 1.2.0/22.                             announcement for a subprefix subp ⊂ pre with an AS-path
+                                                                         that does not terminate in An , we say this was a visible hijack;
+    ROV++ blackholing defeats superprefix hijack of non-                 otherwise, we say this was a hidden hijack. See examples of
+routed prefix. ROV++ always blackholes all traffic sent to               hidden hijacks in Fig. 1. An example of visible hijack is in
+non-routed prefixes. This suffices to completely foil the super-         Fig. 2(a). There, AS 77 receives two announcements from AS
+prefix hijack of non-routed prefixes. Further, this provides             44: one with path (44, 99) for prefix 1.2/16, which if valid and
+some benefits to non-adopting ASes; see evaluation in §V.                selected by AS 77, and one with path (44, 666) for subprefix
+                                                                         1.2.3/24, which is invalid and dropped. However, the traffic
+    Extensions foiling reflection-DDoS. The fact that ROV++              from AS 77 to 1.2.3/24 is still hijacked, which is a visible
+blackholes traffic sent to non-routed prefixes foils many ex-            hijack since AS 77 received the subprefix hijack announcement
+ploits of non-routed prefixes. In particular, it foils spam,             from AS 44.
+since the spammer will not be able to establish the SMTP
+connection. However, this alone may not provide the best                     Hidden hijacks in ROV and ROV++. As shown in
+defense against the common threat of reflection-DDoS attacks.            §II, ROV ASes are vulnerable to visible subprefix hijacks.
+Improved defense can be achieved through another minor                   In addition, since ROV ASes drop illegitimate subprefix an-
+extension: the AS should also blackhole traffic whose source             nouncements, it can create hidden hijacks, i.e., causing other
+IP is in a non-routed prefix.                                            ASes to fall victim to hidden hijacks; see one example in
+                                                                         Fig. 1(b), where AS 44 will suffer from hidden hijacks because
+    Superprefix+prefix hijack prefix. The superprefix attack             ROV AS 78 drops the subprefix hijack announcement. This is
+may also be combined with a prefix-hijack attack, i.e., to hijack        a significant weakness of ROV, and a concern for mixing ROV
+traffic sent to a prefix which was announced by its legitimate           with ROV++ and other defense mechanisms, including BGP
+origin AS, and protected by a ROA. The goal would, again, be             hijack detection services and the Artemis defense [51].
+to reduce the effectiveness of ROV to defend against hijack—
+in this case, to protect against prefix hijack. Let us explain the           In contrast, ROV++ does not suffer from visible subprefix
+attack using an example. As the name implies, the attacker               hijacks. This is by design—even in ROV++ v1—an ROV++
+sends a prefix hijack announcement, say for prefix 1.2.3/24,             AS either blackholes the subprefix or uses an alternative
+but also announces the superprefix, say 1.2.0/22. As before,             safe path (if available) to prevent visible subprefix hijacks.
+we assume that 1.2.0/22 is not covered by a ROA. Consider,               Therefore, all subprefix hijacks in ROV++ are hidden hijacks.
+for simplicity, a stub AS that uses ROV, and assume this AS              In addition, ROV++ ASes will never create hidden subprefix
+received the hijack announcement for 1.2.3/24; due to the use            hijacks. These properties are formally stated below; we assume
+
+                                                                     9
+the relevant RPKI ROAs are correct, i.e., if PASS ROV(ann) is            hidden hijacks, i.e., output a hidden hijack—when receiving a
+invalid, then ann is a prefix or subprefix hijack announcement           hidden hijack announcement. This happens when the hidden
+                                                                         hijack announcement is selected, which may happen quite
+Lemma 1. Consider a ROV++ AS X that receives a visible
+                                                                         often, esp. considering ROV++ “prefers” it, hoping it does
+hijack announcement ann, i.e., PASS ROV(ann) is invalid,
+                                                                         not result in hijack. This causes an interesting phenomenon in
+from neighbor ann.from. Then X will not send packets to
+                                                                         the evaluations, where hijacking from ROV++ ASes somewhat
+ann.from for any packet whose destination IP is in ann.pre.
+                                                                         increases as adoption increases (up to about 40%), due to the
+                                                                         higher proliferation of (BGP-induced) hidden hijacks. This is
+     The lemma follows from the design of ROV++ (all vari-
+                                                                         more pronounced in ROV++ v3, where an adopting AS that has
+ants). Note that if a stub AS receives a visible hijack for
+                                                                         selected the hidden hijack announcement will use the hijacked
+some prefix pre, then it would not send any traffic to pre,
+                                                                         path to generate preventive announcements. Any neighbor that
+i.e., become disconnected from it (rather than allow the traffic
+                                                                         uses this preventive announcement will then be subject to
+to be hijacked).
+                                                                         hidden hijack.
+   We next show that ROV++ achieves Goal 1, if we do not
+have two concurrent hijacks of different sub-prefixes of the                             V.    P ERFORMANCE E VALUATION
+same prefix.
+                                                                            In this section, we evaluate the performance of ROV++ in
+Corollary 1 (Goal 1 is achieved, for a single hijack). If traffic        comparison with ROV using simulation. We first describe the
+from AS A0 to prefix pre is not hijacked when A0 is using BGP            simulation setup, and then present the results.
+or ROV, then traffic from A0 to pre will also not be hijacked
+if A0 uses (any variant of) ROV++, provided that at most one             A. Simulation Setup
+subprefix of pre is hijacked.                                                We evaluate the performance of the multiple ROV++
+                                                                         variants and ROV using a simulator that we developed. This
+    Proof: Consider any IP address x ∈ pre. Let A1 be the                simulator provides detailed simulation of BGP announce-
+AS to which A0 is forwarding packets with destination x,                 ment propagation, including both update and withdrawal of
+when A0 uses BGP/ROV. If, when running ROV++, A0 is                      announcements. It further incorporates simulation of route
+also forwarding packets to x, or A0 cannot route packets to x,           validation, best path decision making and export policy.
+the claim follows trivially. Hence, assume that when A0 runs
+ROV++, it sends packets whose destination is x to another                    All evaluation uses an empirically-derived Internet-scale
+neighbor, A01 6= A1 . In all versions of ROV++, this happens             AS topology (each edge marked with an AS relationship)
+only if A0 detects hijacking of a subprefix subp ⊂ pre. If               from CAIDA [10] (using the serial-2 dataset for July, 2020).
+x ∈ subp, then x would be hijacked if A0 used ROV/BGP.                   For an AS that adopts plain BGP or ROV, the best path
+Otherwise, then x is not in any hijacked (sub)prefix, since we           decision making follows three standard rules in order: (i) local
+assumed at most one subprefix of pre is hijacked; hence, x               preference (i.e., prefer announcements from customers, over
+must be routed correctly also when A0 uses ROV++.                        those from peers, and those from providers), (ii) shortest path,
+                                                                         and (iii) breaking ties randomly. For a ROV++ adopting AS,
+    The claim and proof also extend to the ROV++ Lite
+                                                                         preference to routes with no blackholes is placed right after
+versions, presented in §VI, even without the restriction to a
+                                                                         local preference, so that the economic interests of the AS is still
+single hijack. The proof is omitted due to length restrictions.
+                                                                         considered first. The routing follows the commonly assumed
+    Hidden hijacks in BGP and ROV++. Interestingly, hidden               valley-free routing [18].
+hijacks can also occur in BGP-only networks, where an AS that
+                                                                             For each ROV or ROV++ policy, we assume a certain
+uses BGP does not receive a subprefix hijack announcement
+                                                                         percentage of ASes adopts the policy, while the others run
+from any neighbor, yet the data traffic to the subprefix is
+                                                                         plain BGP. The percentage of adoption varies from 0%-100%
+hijacked; see one example in Fig. 1(a). In a BGP-only network,
+                                                                         for a given policy1 . For each setting, we run over 2000 trials,
+a subprefix hijack announcement will normally reach almost
+                                                                         each with a random attacker and victim from the edge ASes,
+all the ASes, leading to visible subprefix hijacks; but some
+                                                                         and present the average results with 95% confidence intervals.
+(usually few) ASes may not receive the subprefix hijack
+                                                                         We consider three categories of ASes: top 100 ASes (obtained
+announcement (e.g., due to valley-free routing as in Fig. 1(a)),
+                                                                         from ASRank [11] on July 23rd, 2020), edge ASes (those
+and suffer from hidden subprefix hijacks. Our analysis (see full
+                                                                         without customers or peers), and the other ASes (those that
+version [43]) shows that BGP ASes generally make subprefix
+                                                                         are not among top 100 or edge ASes). The results we present
+hijacks visible by forwarding the subprefix announcement,
+                                                                         use uniform adoption among these three categories of ASes,
+hence the hidden hijack rate in BGP-only network is low (the
+                                                                         as in most previous works, although we also tested results for
+visible subprefix hijacks rate is, however, close to 100%). In
+                                                                         non-uniform adoption; results were quite similar.
+contrast, ROV can create hidden hijacks, leading to higher
+hidden hijack rate.                                                          We focus on two types of hijacks: (i) subprefix hijacks,
+    ROV++, unlike ROV and BGP, never creates hidden hi-                  where a prefix, say 1.2/16, is announced by its legitimate
+jacks. However, ROV++ cannot completely prevent hidden                   origin, and an attacking AS announces itself as the origin of
+hijacks, since an AS A0 cannot detect that traffic may be                a subprefix of 1.2/16, say 1.2.3/24; attacker and victim pairs
+hijacked when routed via a neighbor A1 , if A0 did not receive           are randomly chosen from the edge ASes, and (ii) non-routed
+a (visible) hijack announcement for a subprefix subp ⊂ pre                  1 In 0% adoption, only the tested AS adopts the policy; in 100% adoption,
+from A1 . Furthermore, unlike BGP, ROV++ never outputs a                 all but the tested AS adopts the policy. This treatment allows us to present
+visible hijack—and, as a result, may quite often propagate               the trend for adopting and non-adoption ASes separately.
+
+
+                                                                    10
+                                                                                 to the adopting ASes and higher collateral benefits to the non-
+                                                                                 adopting ASes. For all the above, we obtain the results for the
+                                                                                 three categories of ASes, i.e., top 100 ASes, edge ASes and
+                                                                                 others. In the interests of space, we only present the results for
+                                                                                 the edge ASes, which account for over 75% of the ASes, and
+                                                                                 used by most hosts; the results for the other two categories
+                                                                                 show similar trends and are found in Appendix B.
+                                                                                     Overall hijack rate. Fig. 6 plots the average hijack rate
+Figure 5. Subprefix hijack rates in   Figure 6. Subprefix hijack: overall        over all the edge ASes (including both adopting and non-
+control and data planes.              hijack rate.                               adopting ASes) versus adoption rate. The results show that on
+                                                                                 average, the hijack rate for all variants of ROV++ decreases
+                                                                                 with the adoption rate, achieving Goal 2 for subprefix hijacks.
+prefix hijacks, where we consider two cases, one assuming that                   We further observe that all three ROV++ variants (v1-v3)
+an attacker announces a non-routed prefix, say 1.2.3/24, that is                 have similar hijack rates, all significantly lower than that of
+protected by a ROA with origin AS 0, and the other assuming                      ROV for low to medium adoption rate. As expected, ROV++
+that the attacker announces a superprefix, say 1.2.0/22 (i.e.,                   v2a is more aggressive in mitigating hijacks (at the cost of
+superprefix hijack of non-routed prefix, see §III). No other AS                  significantly higher disconnection rate, as we show below). We
+announces the prefix/superprefix.                                                next show the detailed results for adopting and non-adopting
+                                                                                 ASes, respectively.
+     For subprefix hijacks, the performance metrics include (i)
+hijack rate, i.e., the percentage of ASes whose traffic to the                       Results for adopting ASes. Fig. 7 presents the results
+subprefix is hijacked by the attacker, (ii) successful connection                for the adopting ASes. We see from Fig. 7(a) that the hijack
+rate, i.e., the percentage of ASes whose traffic to the subprefix                rate of ROV is much higher than that of the ROV++ variants,
+is routed successfully to the victim, and (iii) disconnect rate,                 particularly under low adoption rate: with 10% adoption, the
+i.e., the percentage of ASes whose traffic to the subprefix is                   hijack rate for edge ASes of ROV is still above 94%, vs. less
+dropped, and routed to neither the victim nor the attacker.                      than 10% for ROV++ variants. As expected, ROV++ v2a has
+For non-routed prefix hijacks, the performance metrics is only                   the lowest hijack rate, followed by ROV++ v1 and v2 (which
+the hijack rate, since no victim is supposed to receive such                     have very similar hijack rate). ROV++ v3 has slightly higher
+prefixes; the disconnect rate is simply the complementary of                     hijack rate than the other ROV++ variants.
+the hijack rate.
+                                                                                    Counter-intuitively, the hijack rates for ROV++ adopting
+B. Data Plane vs. Control Plane Results                                          nodes gradually increase until reaching a peak at about 40%
+                                                                                 adoption, and only then gradually decrease. This surprising
+    Before presenting the results, we first highlight the impor-                 “bump” is due to hidden hijacks, as explained in §IV.
+tance of quantifying the various performance metrics based
+on the data plane (i.e., the actual paths for the data packets),                     Notice that hidden-hijacks behave in a similar manner also
+instead of the control plane (i.e., the absence or presence                      for ROV. This cannot be seen directly from the blue line in
+of a subprefix/prefix in the routing table). Fig. 5 shows an                     Fig. 7(a), representing hijack rate for ROV, since that line
+example. It plots the hijack rate when 0 to 100% of the ASes                     includes also many visible hijacks. However, we also measured
+adopt ROV under subprefix hijacks. For adopting ASes, the                        separately the number of hidden hijacks in ROV, and the result
+control-plane hijack rate is always zero, since all these ASes                   is also shown in Fig. 7(a). In fact, the result was so close to
+drop the hijacked subprefix; the actual data-plane hijack rate,                  that of ROV++v3 (not visually distinguishable) that we use the
+however, begins at essentially 100% and then decreases with                      line for ROV++ v3 to represent also the hidden hijack rates
+adoption rate; this is due to data-plane hijacks, as described in                for ROV.
+§II-A. Also for non-adopting ASes, data-plane hijack rates are                       The successful connection rate of all ROV and ROV++
+significantly higher (worse) than the control plane hijack rate.                 policies (see Fig. 7(b)) increases with the adoption rate. As
+    The above example demonstrates that results in the control                   expected, ROV++ v3 has the highest successful connection
+plane can lead to significant underestimation of hijacks. Hence,                 rates, due to its preventive announcement mechanism. How-
+all the results in the rest of this section are obtained from                    ever, the improvement is not that significant, and we doubt it
+the data plane, which provide accurate characterization of the                   would justify the use of v3, which is more complex and has
+actual performance of ROV and various ROV++ policies.                            somewhat higher hijack rates. Close behind are the successful
+                                                                                 connection rates of ROV, ROV++ v1, and ROV++ v2, all of
+C. Subprefix Hijacks                                                             which are so close that we present them by a single line (of
+                                                                                 v1, but one really cannot tell them apart anyway). ROV++ v2a
+    For subprefix hijacks, we first present the overall hijack
+                                                                                 definitely has significantly inferior successful connection rates,
+rate for all ASes, with different percentages adopting (and the
+                                                                                 and therefore, does not appear to be a good choice to protect
+rest non-adopting). We then present the results for adopting
+                                                                                 against subprefix hijacks.
+and non-adopting ASes separately. For adopting ASes, the
+results quantify the security benefits from adopting the policy,                     Fig. 7(c) shows the disconnection rates, which are simply
+while for non-adopting ASes, the results quantify the collateral                 the complement of the hijack rates plus the successful con-
+benefits such ASes obtained from the adopting ASes. The                          nection rates. Considering that the goal is to have low hijack
+results for both cases are important—a policy is more likely to                  rates and high successful connection rates, it seems that the
+see wider adoption when it provides higher security benefits                     disconnection rate alone should not be a measure to compare
+
+                                                                            11
+                   (a) Hijack rate                           (b) Successful connection rate                               (c) Disconnect rate
+Figure 7. Subprefix hijacks: Data plane results for adopting edge ASes with 95% confidence intervals (a curve marked with multiple policies presents the
+result for the first policy; the others are visually indistinguishable and hence not plotted for clarity).
+
+
+
+
+                   (a) Hijack rate                           (b) Successful connection rate                  (c) Disconnect rate (y-axis up to 60%)
+Figure 8. Subprefix hijacks: Data plane results for non-adopting edge ASes with 95% confidence intervals (a curve marked with multiple policies presents the
+result for the first policy; the others are visually indistinguishable and hence not plotted for clarity).
+
+
+the mechanisms. Not surprisingly, ROV++ v2a has the highest
+disconnection rates, and ROV has almost no disconnections
+(since it has many hijacks). The results of ROV++ v1 and v2
+are very close (indeed visually indistinguishable), while v3 has
+slightly lower disconnection rates.
+
+
+    Results for non-adopting ASes. Fig. 8 presents the results
+for non-adopting ASes. For all ROV and ROV++ policies,
+the hijack rate decreases with increased adoption, showing                       Figure 9.      Prefix hijack on non-     Figure 10.        Superprefix attack on
+collateral benefits, i.e., the non-adopting ASes benefit from the                routed prefix: Data plane hijack rate    non-routed prefix: Data plane hijack
+adopting ASes; however, the advantage is not very significant,                   for non-adopting edge ASes. The re-      rate for non-adopting edge ASes. Re-
+                                                                                 sults for ROV and ROV++ v1 over-         sults are for the case where attacker
+definitely much less than for adopting ASes. The different                       lap; the results of ROV++ v2 and v3      announces both the non-routed prefix
+ROV++ variants have quite close hijack rates, except v2a,                        overlap, and are the same for the Lite   and its superprefix, and are the same
+which has significantly lower (better) hijack rates, but that                    versions. The hijack rate for ROV        for the Lite versions. ROV++ adopt-
+comes at the cost of very significantly reduced successful con-                  and ROV++ (all variants) adopting        ing ASes have no hijacks; for ROV,
+nection rates. Excluding ROV++ v2a, it is clear that ROV++                       ASes is zero (figure omitted).           all traffic is hijacked for adopting and
+                                                                                                                          non-adopting ASes (figures omitted).
+v3 is the best for non-adopting ASes, having both the highest
+successful connection rates and the lowest hijack rates, but not
+by much, esp. when compared to ROV++ v1 and v2 (it has a                         D. Hijack of Non-routed Prefixes
+bit more advantage over ROV).
+                                                                                     We now present the results for hijacking of non-routed
+                                                                                 prefixes. Our evaluation is in two cases: (i) the classical
+    We see from Figures 7(b) and 8(b) that ROV++ v2 has                          prefix-hijack attack on a non-routed prefix, where the attacker
+similar successful connection rates as v1, for both adopting                     announces the non-routed prefix, and (ii) the novel superprefix
+and non-adopting ASes, indicating that although the blackhole                    attack on a non-routed prefix, introduced in §III-D, where the
+announcements in ROV++ v2 can potentially compete with                           attacker announces a superprefix of the non-routed prefix. The
+legitimate prefix announcements, causing failed delivery of                      results were essentially the same whether the attacker also
+traffic to the legitimate destination, this rarely happens based                 announces the non-routed prefix itself of not.
+on our extensive evaluation. ROV++ v2a, on the other hand,
+leads to much lower successful connection rate than v1 due to                       Prefix-hijack attack on a non-routed prefix. In this type
+its aggressive propagation of blackhole announcements.                           of hijack, the hijack rate is zero for all adopting ASes—for
+
+                                                                            12
+both ROV and all ROV++ variants. This is because adopting
+ASes drop the non-routed prefix, and hence have no route to
+the (non-routed) prefix—i.e., the attack fails—adopting ASes
+are always disconnected (as desired to foil abuse of non-routed
+prefixes).
+    Hence, we focus on non-adopting ASes; Fig. 9 plots
+the hijack rate for the non-adopting edge ASes. For ROV,
+the results show roughly linear decrease in hijack rate with
+increased adoption; ROV++ v1 has identical results as ROV,
+since in this case, there is no need to blackhole packets as
+the adopting AS would not have any route to the (non-routed)              Figure 11. Subprefix hijacks: hijack rate of ROV++ v1 Lite and ROV++ v1:
+                                                                          differences between Lite and “regular” are very small. We only show results
+prefix. ROV++ v2 has noticeably lower hijack rates than v1,               for hijack rates, since for successful connection and disconnection rates, there
+due to the blackhole announcement mechanism, and v3 has                   is no visible difference between the Lite and “regular” versions.
+identical results as v2, since there are no valid routes to the
+prefix to begin with—preventive announcements are irrelevant.
+As expected, ROV++ v2a has the best (lowest) hijack rates,                v2a has much lower hijack rate than the other variants at
+due to its aggressive propagation of blackhole announcements.             the cost of significantly lower successful connection rate. For
+We also confirmed that the Lite version of ROV++ v2 and                   hijacks involving non-routed prefixes, the blackhole announce-
+v2a, presented in §VI, has visually indistinguishable results             ment mechanism introduced in v2 leads to significantly lower
+as their non-lite version; we mention this explicitly (and in             hijack rate for non-adopting ASes, esp. for v2a.
+the legend of the figure), since this result is significant to our            The above observations focus on the performance of the
+recommendations later on.                                                 ROV++ variants. In §VII, we further discuss other issues
+   Summarizing the results for adopting and non-adopting                  (e.g., susceptibility to abuse, ease of deployment, incentive of
+ASes, the overall hijack rate for all variants of ROV++                   deployment) and provide recommendations on which ROV++
+decreases with the adoption rate (figure omitted), achieving              variant(s) to choose for subprefix hijacking and non-routed
+Goal 2 for non-routed prefix hijacks.                                     prefix hijacking, respectively.
+    Superprefix attack on a non-routed prefix. In this type               VI.     I MPLEMENTATION , D EPLOYMENT AND ROV++ L ITE
+of hijack, introduced in §III-D, the attacker announces a                     The blackholing, blackhole announcement and preventive
+superprefix of the non-routed prefix, and the superprefix is not          announcement mechanisms in ROV++ are easy to implement
+covered by a ROA. As explained in §III-D, ROV fails to block              on existing routers. The preference to safe paths (included in
+this attack, since almost all ASes would have the superprefix             all ROV++ variants), however, requires changes to the BGP
+path and there is no blackholing of packets.                              path selection process, which requires changes to BGP routers
+    The result is completely the opposite for ROV++ adopting              and possibly also the configuration parameters and scripts used
+ASes, since they all blackhole traffic to (and from) non-routed           by network operators. We design ROV++ Lite that removes
+prefixes, or, more precisely, prefixes covered by a ROA with              this preference mechanism for easy implementation and de-
+origin AS zero (indicating being non-routed). Note that traffic           ployment, while only leads to slightly degraded performance
+to any subprefixes with valid ROA is not blackholed. Hence,               compared to its non-lite counterpart as we show below.
+there are absolutely no hijacks from ROV++ adopting ASes.                     ROV++ Lite: a plug-and-play design. ROV++ Lite differs
+    It remains to consider the results for non-adopting ASes,             from ROV only in that it “gives up” the ROV++ safe-path
+with different adoption rates of ROV++ (as explained, ROV                 preference mechanism. Specifically, it uses the standard BGP
+adoption is completely useless). Fig. 10 shows the results for            best path selection process. If the selected path contains holes,
+a variant of the attack, where the attacker also announces the            then it sets up data-plane blackholing, which is ROV++ Lite
+non-routed prefix. The non-routed prefix announcement causes              v1. ROV++ Lite v2 and v3 further include the blackhole an-
+ROV++ ASes, except v1, to send blackhole announcements,                   nouncement mechanism, and ROV++ Lite v3 further includes
+which reduce hijack rates, most effectively for v2a. However,             the preventive announcement mechanism. All Lite versions can
+the attacker is better off sending only the superprefix, in which         be implemented on legacy BGP routers (see below).
+case the results for all ROV++ variants become as shown for                   Performance of ROV++ Lite. For non-routed prefix hi-
+v1. In both cases (i.e., whether the attacker sends or not sends          jacking, the performance of the Lite version is identical to
+the non-routed prefix), the Lite versions will have exactly the           that of the non-Lite version (for all variants), since the safe-
+same results, since there are no “holes” as in subprefix hijacks          path preference mechanism is irrelevant for such hijacks. For
+(see §VI).                                                                subprefix hijacking, our evaluation shows that the Lite version
+                                                                          is very much on par with the non-lite version. Fig. 11 shows
+E. Summary of Main Results
+                                                                          one example by comparing the hijack rate of ROV++ v1 Lite
+    To summarize, ROV++ improves dramatically upon ROV,                   and the non-lite version for both adopting and non-adopting
+for both subprefix and non-routed prefix hijacks, especially              ASes. We see that the Lite version only has slightly higher
+with low adoption. We observe tradeoff among the various                  hijack rate than the non-Lite version for adopting ASes; for
+ROV++ variants. For subprefix hijacks of routed prefixes,                 non-adopting ASes, their performance is almost identical. We
+ROV++ v1 achieves similar performance as ROV++ v2/v3,                     observe similar results for successful connection rate and
+while is simpler and easier to implement and deploy; ROV++                disconnect rate (figures omitted).
+
+                                                                     13
+                              (a) ROV++ Lite server design                                   (b) Deployment of ROV++ Lite server
+Figure 12.   The design and deployment of ROV++ Lite server for implementing ROV++ Lite.
+
+
+                                                                                          Table I.     S UMMARY: PROS , CONS AND OUR RECOMMENDATION .
+   ROV++ Lite Implementation. ROV++ Lite can be de-
+ployed in any AS with legacy BGP routers, assuming only                                        Subprefix hijacking                            Non-routed prefix hijacking
+several standard mechanisms available in most BGP routers:                           v1
+                                                                                               recommended: performance on par with
+                                                                                                                                              not recommended
+                                                                                               v2 and v3, not susceptible to abuse
+ROV, BMP [50], and BGP FlowSpec [40]. We implement                                             not recommended: seems like propagating        recommended, lower (better)
+ROV++ Lite through a ROV++ Lite server as shown in Fig. 12.                          v2        hijack, deployment more complex than v1,       hijack rate than v1, aligned
+A ROV++ Lite server, deployed in an AS, can communicate                                        while performance comparable to v1             with economic incentives
+                                                                                               not recommended: has much                      recommended, but hard
+with multiple routers in the AS.                                                     v2a       lower successful connection rate,              to deploy, albeit significantly
+                                                                                               albeit lower hijack rate                       better (lower) hijack rate
+    The Lite server needs to be aware of any incoming hijack                                   not recommended: violates BGP ann.             not recommended, higher
+announcement to take the corresponding countermeasures,                              v3        mechanism, has risk of abuse by attacker,      complexity, performance same
+                                                                                               while performance comparable to v1             as v2, risk of abuse
+beginning with blackholing (already from v1). To achieve                                                            Lite versions recommended
+this, it obtains all the incoming BGP announcements to the                                                   Comparable results, much easier to deploy.
+routers through BMP [50]. Next, the Lite server needs to
+identify invalid announcements (i.e., suspected hijacks). This
+is achieved similarly to the regular ROV implementation2 .
+Namely, the Lite server receives updated RPKI information                               Feedback from Network Operators. We are currently
+(ROAs and RCs) from the standard RPKI repositories, and then                        working with network operators to get feedback about our
+caches and validates them. We use the RIPE implementation,                          design and implementation, to understand their concerns and
+and the RTR protocol to set the ROV rules in the routers.                           desires from a system such as ROV++, and to coordinate
+                                                                                    deployment. The network operators with whom we communi-
+    After identifying a hijack, the Lite server applies the                         cated have shown keen interest in the potential of ROV++ to
+ROV++ policy and countermeasures: blackholing (from v1),                            defend against DoS attacks, a major concern of many network
+blackhole announcements (from v2) and preventive announce-                          operators. This seems to provide an incentive for operators to
+ments (from v3). In particular, to implement blackholing, it                        deploy ROV++, particularly the blackholing mechanism, that
+uses BGP FlowSpec [40]. Listing 1 shows an example of                               does not exist in ROV, while requires little effort to implement
+blackholing prefix 1.2.3/24 using FlowSpec on JunOS, by                             and deploy. Overall, the responses from the network operators
+specifying the action for the matching prefix as discard. A                         are positive, and we hope that this would indeed translate to
+similar set of commands can be used for Cisco IOS.                                  experimental (and later, hopefully, long-term) deployments. We
+                                                                                    will continue to work with operators to improve our design,
+    Listing 1.   Blackholing with FlowSpec on JunOS                                 install and deploy ROV++ Lite, and receive more feedback.
+    e d i t r o u t i n g −o p t i o n s f l o w r o u t e BLK PRE                  We are very grateful for their cooperation.
+    e d i t match
+    s e t source 1 . 2 . 3 . 0 / 2 4                                                      VII. R ECOMMENDATION AND D ISCUSSION
+    s e t then d i s c a r d                                                        A. ROV++ Variants: Pros, Cons and Recommendations
+    commit
+                                                                                       We next summarize the pros and cons of the various
+                                                                                    ROV++ variants (both non-Lite and Lite versions), and present
+    To issue blackhole announcements (from v2) and preven-                          our recommendation on which variant(s) to adopt for routed
+tive announcements (v3), the Lite server uses a software BGP                        and non-routed prefix hijacks, respectively. The summary is in
+router that is part of the Lite ROV++ server package. Note                          Table I.
+that blackhole announcements are merely BGP announcements
+with additional flag information posted in the transitive at-                       • Lite versions recommended. We recommend the easier-to-
+tribute section of a BGP announcement. Reading the flag                             deploy Lite versions (§VI), since in our experiments, they were
+from the transitive attribute, the Lite server can execute the                      on par with the “regular” versions; e.g., see Fig. 11.
+blackhole specified using the commands in Listing 1.
+                                                                                    • Subprefix hijacking. (i) For subprefix hijacking, we rec-
+  2 Our implementation supports optional non-standard mechanisms to identify        ommend only using ROV++ v1. This is because, as shown
+hijacks, but these are not related to ROV++ and therefore out of scope.             in Figures 7 and 8, ROV++ v1 provides similar performance
+
+                                                                               14
+as ROV++ v2/v3, but is simpler and easier to implement. (ii)             • ROV++ never introduces hidden hijacks in all mixed deploy-
+We do not recommend ROV++ v2 or v3, since their hijack                   ment scenarios, including mixed deployment of ROV++ and
+rate is only slightly lower than that of v1, and they are harder         ROV, and mixed deployment of multiple ROV++ variants.
+to deploy and implement; also, the blackhole announcement
+in v2 can attract legitimate traffic, causing unnecessary dis-                    VIII.     C ONCLUSIONS AND F UTURE W ORK
+connection. Furthermore, there may be concerns about abuses
+and unexpected side-effects of the blackhole and (even more)                 We presented and evaluated ROV++, an improvement of
+preventive announcements. (iii) We do not recommend ROV++                the ROV standard. ROV++ extends ROV by including several
+v2a because of its significantly lower successful connection             mechanisms with different impacts and tradeoffs. Extensive
+rate than other variants.                                                evaluation based on detailed simulations demonstrates that
+                                                                         ROV++ significantly improves upon ROV, significantly re-
+• Non-routed prefix hijacking. (i) We recommend ROV++                    ducing hijack rates for attacks on both subprefixes and non-
+v2a for non-routed prefix hijacking (including the novel super-          routed prefixes, and especially with low adoption. We further
+prefix hijacking). This is because it has the lowest hijack rate;        developed and evaluated ROV++ Lite versions, which can be
+its aggressive blackhole announcement propagation does not               easily deployed on existing routers. Last, we discussed the
+cause adverse impact since the prefixes are non-routed (i.e.,            pros and cons of the various ROV++ variants, and provided
+should not be announced at all), and hence there is no risk              recommendations for deployment.
+of competing with legitimate traffic. On the other hand, a v2a               As future work, we are exploring in the following three
+AS will send blackhole announcements to its providers and                directions: (i) develop techniques to further reduce the impact
+peers, and then drop the attracted traffic, which will lead to           of hidden hijacks, (ii) explore scenarios with mixed deploy-
+deployment challenges (the v2a AS attracts traffic from its              ments of ROV and ROV++, (iii) explore other ROV extensions
+provider and peers to prevent them from being hijacked, while            that will provide defense even when adoption happens only,
+not being compensated for the traffic, since it has to drop              or almost only, at the edge ASes, and (iv) evaluate the per-
+the traffic instead of forwarding the traffic to its customers).         formance of ROV++ under more realistic simulation settings,
+(ii) Considering both performance and deployment incentives,             e.g., by taking account of real-world routing decisions, instead
+we also recommend v2. This is because v2 outperforms v1                  of only using valley-free routing, and considering the current
+and ASes may have more economic incentives to adopt v2                   deployment locations of ROV (e.g., as reported in [57]), instead
+than v2a (v2 ASes only send blackhole announcements to                   of or in addition to random locations.
+their customers, and will be compensated for attracting and
+dropping the traffic from their customers).                                  We hope that our study raises the awareness of the security
+                                                                         limitations of ROV and motivates further studies addressing
+    Our recommendation above considers multiple aspects,
+                                                                         these limitations. A collective effort of the community can lead
+including ease of deployment, risk of abuse, performance
+                                                                         to a stronger foundation to continue building the momentum
+and deployment incentives. In general, routing is a social
+                                                                         of RPKI adoption and improve inter-domain routing security.
+operation: when an AS sends routing announcements, there
+is potential impact on other ASes. It is therefore necessary to
+carefully consider the potential impact of any proposed change                                 ACKNOWLEDGEMENTS
+in routing, and ensure that it meets the do no harm principle.               We would like to thank the anonymous reviewers for their
+We discuss ethics of routing security in more detail in the full         insightful and constructive feedback, and our shepherd Dr.
+version [43].                                                            Samuel Jero for his helpful guidance. We also thank Joel
+B. Mixed Deployments of ROV and ROV++ Variants                           Halpern, Shuai Hao, John Kristoff, Louis Poinsignon, Lars
+                                                                         Prehn, Kotikalapudi Sriram, Celia Testart, and Russ White for
+   We next briefly discuss how ROV++ interacts with ROV,                 their comments and suggestions on earlier drafts of the paper.
+and how the three ROV++ variants interact with each other.               Our collaborating partners, Connecticut Education Network
+                                                                         (Rick Cheung, Ryan Kocsondy, and Michael Pennington)
+• ROV may often result in hidden hijacks, preventing ROV++
+                                                                         and UConn IT Services (Robert Kent, Michael Mundrane,
+ASes (all versions) down the path from receiving hijack an-
+                                                                         and Michael Williams) provided us valuable feedback on
+nouncements and hence damaging their capability in mitigating
+                                                                         deployment and operation aspects of this project. We are
+the attacks. In contrast, doing any version of ROV++ and then
+                                                                         grateful for the great work by the project team at UConn,
+ROV reduces the risk of hidden hijacks due to the ROV ASes
+                                                                         including Jack Aaron, Abhinna Adhikari, Matthew Jaccino,
+(they may select announcements created by ROV++ v2 or v3,
+                                                                         Sam Kasbawala, Shariq Khan, Pablo Rodriguez, Sam Secondo,
+which will not create new hidden hijack), reducing the harm
+                                                                         Nicholas Shpetner, and Tony Zheng. This work was partially
+from ROV.
+                                                                         supported by NSF under award OAC-1840041 and by the
+• Mixing higher versions of ROV++ with lower versions can                Comcast Corporation. The opinions expressed in the paper are
+reduce the impact of the higher versions. As an example, if the          those of the researchers and not of their university or funding
+path contains a ROV++ v1 AS followed by a v3 AS, then the                sources.
+v3 AS may not be aware that the v1 AS blackholes traffic to
+the subprefix, and send a preventive announcement with the v1                                        R EFERENCES
+AS in the path, and the traffic is blackholed (while otherwise            [1] AT&T/as7018 now drops invalid prefixes from peers. https://seclists.
+there may have been a path allowing delivery); the v3 AS may                  org/nanog/2019/Feb/140.
+also not be aware of the hijack at all, and hence does not send           [2] Indosat    a    Quick     Report.          http://www.bgpmon.net/
+a preventive announcement.                                                    hijack-by-as4761-indosat-a-quick-report/.
+
+
+                                                                    15
+ [3]   W. Aiello, J. Ioannidis, and P. McDaniel. Origin authentication in                    dation. In IEEE/IFIP International Conference on Dependable Systems
+       interdomain routing. In Proc of CCS, 2003.                                            and Networks - DSN, June 2018.
+ [4]   Ruwaifa Anwar, Haseeb Niaz, David Choffnes, Italo Cunha, Phillipa              [26]   Y.-C. Hu, A. Perrig, and M. Sirbu. SPV: secure path vector routing for
+       Gill, and Ethan Katz-Bassett. Investigating Interdomain Routing Poli-                 securing BGP. In Proc. of ACM SIGCOMM, September 2004.
+       cies in the Wild. In Proc. of ACM IMC, Oct. 2015.                              [27]   G. Huston and G. Michaelson. Validation of Route Origination Using
+ [5]   Hitesh Ballani, Paul Francis, and Xinyang Zhang. A Study of Prefix                    the Resource Certificate Public Key Infrastructure (PKI) and Route
+       Hijacking and Interception in the Internet. In Proc. of ACM SIGCOMM,                  Origin Authorizations (ROAs). RFC 6483 (Informational), February
+       pages 265–276, 2007.                                                                  2012.
+ [6]   O. Borchert, O. Kim, L. Hannachi, D. Montgomery, and K. Sriram.                [28]   G. Huston, M. Rossi, and G. Armitage. Securing BGP: A literature
+       NIST RPKI Monitor and Test System, NIST Test and Measurement                          survey. IEEE Communications Surveys & Tutorials, 13(2):199–222,
+       Tool. https://rpki-monitor.antd.nist.gov/.                                            2011.
+ [7]   R. Bush and R. Austein. The Resource Public Key Infrastructure (RPKI)          [29]   Daniele Iamartino. Study and Measurements of the RPKI Deployment,
+       to Router Protocol. RFC 6810 (Proposed Standard), January 2013.                       2015.
+       Updated by RFC 8210.                                                           [30]   Daniele Iamartino, Cristel Pelsser, and Randy Bush. Measuring BGP
+ [8]   Kevin Butler, Toni R. Farley, Patrick McDaniel, and Jennifer Rexford.                 Route Origin Registration and Validation. In Jelena Mirkovic and Yong
+       A survey of BGP security issues and solutions. Proceedings of the                     Liu, editors, PAM, volume 8995 of Lecture Notes in Computer Science,
+       IEEE, 98(1):100–122, 2010.                                                            pages 28–40. Springer, 2015.
+ [9]   Kevin Butler, Patrick McDaniel, and William Aiello. Optimizing bgp             [31]   Josh Karlin, Stephanie Forrest, and Jennifer Rexford. Pretty Good BGP:
+       security by exploiting path stability. In Proceedings of ACM Conference               Improving BGP by Cautiously Adopting Routes. In ICNP, pages 290–
+       on Computer and Communications Security (CCS), pages 298–310,                         299. IEEE Computer Society, 2006.
+       New York, NY, USA, 2006. ACM.                                                  [32]   S. Kent and K.seo. An Infrastructure to Support Secure Internet
+[10]   CAIDA.             The     CAIDA       AS      Relationships   Dataset.               Routing. RFC 6480, The Internet society, February 2012.
+       http://www.caida.org/data/as-relationships/, January 2016.                     [33]   S. Kent and D. Mandelberg. Suspenders: A Fail-safe Mechanism for
+[11]   CAIDA. ASRank CAIDA’s Ranking of Autonomous Systems. https:                           the RPKI, 2013.
+       //asrank.caida.org/, 2018.                                                     [34]   Stephen Kent, Charles Lynn, and Karen Seo. Secure Border Gateway
+[12]   B. Cartwright-Cox. Measuring RPKI adoption via the data-plane. nlnog                  Protocol (S-BGP). IEEE Journal on Selected areas in Communications,
+       day 2018.                                                                             18(4):582–592, 2000.
+[13]   Haowen Chan, Debabrata Dash, Adrian Perrig, and Hui Zhang. Mod-                [35]   Robert Lychev, Sharon Goldberg, and Michael Schapira. BGP security
+       eling Adoptability of Secure BGP Protocols. In Proc. of SIGCOMM.                      in partial deployment: Is the juice worth the squeeze? ACM SIGCOMM
+       ACM, 2006.                                                                            Computer Communication Review, 43(4):171–182, 2013.
+[14]   Taejoong Chung, Emile Aben, Tim Bruijnzeels, Balakrishnan Chan-                [36]   Lepinski M., Kong D., and Kent S. A Profile for Route Origin
+       drasekaran, David Choffnes, Dave Levin, Bruce Maggs, Alan Mislove,                    Authorizations (ROAs), February 2012.
+       Roland van Rijswijk-Deij, John Rula, and Nick Sullivan. RPKI is                [37]   M. Lepinski (Ed.) and K. Sriram (Ed.). BGPsec Protocol Specification.
+       Coming of Age: A Longitudinal Study of RPKI Deployment and Invalid                    RFC 8205, September 2017.
+       Route Origins. In Proc. of IMC. ACM, 2019.                                     [38]   H. Madhyastha, E. Katz-Bassett, T. Anderson, A. Krishnamurthy, and
+[15]   Avichai Cohen, Yossi Gilad, Amir Herzberg, and Michael Schapira.                      A. Venkataramani. iPlane Nano: Path Prediction for Peer-to-Peer
+       Jumpstarting BGP security with path-end validation. In Proc. of ACM                   Applications. In Proce of NSDI, 2009.
+       SIGCOMM, pages 342–355. ACM, 2016.                                             [39]   Ratul Mahajan, David Wetherall, and Thomas E. Anderson. Under-
+[16]   D. Cooper, E. Heilman, K. Brogle, L. Reyzin, and S. Goldberg. On                      standing BGP Misconfiguration. In Proc. of SIGCOMM, pages 3–16.
+       the risk of misbehaving RPKI authorities. In Proc. of HotNets. ACM,                   ACM, 2002.
+       2013.                                                                          [40]   P. Marques, N. Sheth, R. Raszuk, B. Greene, J. Mauch, and D. McPher-
+[17]   Remy de Boer and Javy de Koning. BGP Origin Validation (RPKI).                        son. Dissemination of Flow Specification Rules, August 2009.
+       Technical report, Univeristy of Amsterdam, Systems and Network                        https://tools.ietf.org/html/rfc5575.
+       Engineering Group, July 2013.                                                  [41]   R. Mazloum, M. Buob, J. Auge, B. Baynat, D. Rossi, and T. Friedman.
+[18]   Lixin Gao and Jennifer Rexford. Stable Internet Routing without Global                Violation of Interdomain Routing Assumptions. In Proc. of Passive and
+       Coordination. IEEE/ACM Trans. Netw., 9(6):681–692, 2001.                              Active Measurement Conference (PAM), March 2014.
+[19]   Yossi Gilad, Avichai Cohen, Amir Herzberg, Michael Schapira, and               [42]   Asya Mitseva, Andriy Panchenko, and Thomas Engel. The state of
+       Haya Shulman. Are We There Yet? On RPKI’s Deployment and                              affairs in BGP security: A survey of attacks and defenses. Computer
+       Security. In NDSS. The Internet Society, 2017.                                        Communications, 124:45–60, June 2018.
+[20]   S. Goldberg, M. Schapira, P. Hummon, and J. Rexford. How Secure are            [43]   Reynaldo Morillo, Justin Furuness, Cameron Morris, James Breslin,
+       Secure Interdomain Routing Protocols? In Proc. of SIGCOMM. ACM,                       Amir Herzberg, and Bing Wang. ROV++: Improved deployable defense
+       2010.                                                                                 against BGP hijacking. https://sidr.engr.uconn.edu, 2021. Full version.
+[21]   Geoffrey Goodell, William Aiello, Timothy Griffin, John Ioannidis,             [44]   W. Mühlbauer, A. Feldmann, O. Maennel, M. Roughan, and S. Uhlig.
+       Patrick Drew McDaniel, and Aviel D. Rubin. Working around BGP:                        Building an AS-topology model that captures route diversity. In Proc.
+       An Incremental Approach to Improving Security and Accuracy in                         of SIGCOMM, 2006.
+       Interdomain Routing. In NDSS. The Internet Society, 2003.                      [45]   S. Murphy. BGP Security Vulnerabilities Analysis, IETF draft-ietf-idr-
+[22]   Ethan Heilman, Danny Cooper, Leonid Reyzin, and Sharon Goldberg.                      bgp-vuln-00. February 2002.
+       From the consent of the routed: improving the transparency of the RPKI.        [46]   Y. Rekhter (Ed.), T. Li (Ed.), and S. Hares (Ed.). A Border Gateway
+       In Proc. of ACM SIGCOMM, pages 51–62, 2014.                                           Protocol 4 (BGP-4). RFC 4271 (Draft Standard), January 2006. Updated
+[23]   Amir Herzberg, Matthias Hollick, and Adrian Perrig. Secure Routing for                by RFCs 6286, 6608, 6793, 7606, 7607, 7705, 8212, 8654.
+       Future Communication Networks (Dagstuhl Seminar 15102). Dagstuhl               [47]   Renesys. The New Threat: Targeted Internet Traffic Misdirection. http:
+       Reports, 5(3):28–40, 2015.                                                            //www.renesys.com/2013/11/mitm-internet-hijacking/.
+[24]   Tomas Hlavacek, Italo Cunha, Yossi Gilad, Amir Herzberg, Ethan Katz-           [48]   Andreas Reuter, Randy Bush, Ítalo Cunha, Ethan Katz-Bassett,
+       Bassett, Michael Schapira, and Haya Shulman. DISCO: Sidestepping                      Thomas C. Schmidt, and Matthias Wählisch. Towards a Rigorous
+       RPKI’s deployment barriers. In Proceedings of the 2020 Network and                    Methodology for Measuring Adoption of Rpki Route Validation and
+       Distributed System Security (NDSS) Symposium, February 2020.                          Filtering. CoRR, abs/1706.04263, 2017.
+[25]   Tomas Hlavacek, Amir Herzberg, Haya Shulman, and Michael Waidner.              [49]   RouteViews. University of Oregon Route Views Project. http://www.
+       Practical Experience: Methodologies for Measuring Route Origin Vali-                  routeviews.org/routeviews/, 2018.
+
+
+                                                                                 16
+[50]   J. Scudder (Ed.), R. Fernando, and S. Stuart. BGP Monitoring Protocol           Algorithm 2 Auxiliary procedures in ROV++
+       (BMP). RFC 7854 (Proposed Standard), June 2016. Updated by RFC                   1: procedure F IND B EST (pre)
+       8671.
+                                                                                        2: Set S = {a | a ∈ A, a.pre ⊇ pre}
+[51]   Pavlos Sermpezis, Vasileios Kotronis, Petros Gigis, Xenofontas Dim-
+                                                                                        3: Find the best route a ∈ S following priority rules in the
+       itropoulos, Danilo Cicalese, Alistair King, and Alberto Dainotti.
+       Artemis: Neutralizing bgp hijacking within a minute. IEEE/ACM                       order of relationship, minimize-holes, and path length
+       Transactions on Networking, 26(6):2471–2486, 2018.                               4: return a
+[52]   Muhammad S. Siddiqui, Diego Montero, Rene Serral-Gracia, Xavi                    5: end procedure
+       Masip-Bruin, and Marcelo Yannuzzi. A survey on the recent efforts
+       of the Internet Standardization Body for securing inter-domain routing.
+       Computer Networks, 80:1–26, April 2015.                                          1: procedure B LACKHOLE (hole)
+[53]   K. Sriram, O. Borchert, and D. Montgomery. Origin Validation                     2: B = B ∪ hole.pre
+       Policy Considerations for Dropping Invalid Routes, IETF Internet Draft           3: Set up routing table to drop all traffic to destination IP
+       (Standards Track, SIDROPS Working Group), May 2020.                                 addresses in hole.pre
+[54]   K. Sriram and D. Montgomery. Resilient Interdomain Traffic Exchange:             4: end procedure
+       BGP security and DDoS Mitigation. December 2019. NIST SP 800-
+       189.
+[55]   L. Subramanian, V. Roth, I. Stoica, S. Shenker, and R. Katz. Listen              1: procedure R EMOVE B LACKHOLE (hole)
+       and whisper: Security mechanisms for BGP. In Proc. of NSDI, 2004.                2: B = B \ hole.pre
+[56]   C. Testart, P. Richter, A. King, A. Dainotti, and D. Clark. Profiling            3: Remove blackhole on hole.pre from the routing table
+       BGP Serial Hijackers: Capturing Persistent Misbehavior in the Global             4: end procedure
+       Routing Table. In Proc. of IMC. ACM, 2019.
+[57]   C. Testart, P. Richter, A. King, A. Dainotti, and D. Clark. To Filter or
+       Not to Filter: Measuring the Benefits of Registering in the RPKI Today.          1: procedure S END B LACKHOLE A NN (hole)
+       In Proc. of Passive and Active Measurement Conference (PAM), January             2: //only do so if hole.f rom is a provider or peer
+       2020.                                                                            3: Create a blackhole announcement ann with prefix        as
+[58]   Andree Toonk. Turkey Hijacking IP Addresses for Popular Global DNS                  hole.pre and AS path as hole.path
+       Providers. BGPMon.                                                               4: Set transitive flag in ann to mark that it is a blackhole
+[59]   Paul C van Oorschot, Tao Wan, and Evangelos Kranakis. On in-                        announcement
+       terdomain routing security and pretty secure BGP (psBGP). ACM                    5: Send ann to customers in ROV++ v2 and according to
+       Transactions on Information and System Security (TISSEC), 10(3):11,
+       2007.
+                                                                                           export policy in ROV++ v2a
+                                                                                        6: end procedure
+[60]   Pierre-Antoine Vervier, Olivier Thonnard, and Marc Dacier. Mind Your
+       Blocks: On the Stealthiness of Malicious BGP Hijacks. In NDSS, 2015.
+[61]   Matthias Wählisch, Olaf Maennel, and Thomas C. Schmidt. Towards                 1: procedure W ITHDRAW B LACKHOLE A NN (hole)
+       detecting BGP route hijacking using the RPKI. In Proc. of ACM                    2: Withdraw blackhole announcements with prefix hole.pre
+       SIGCOMM, pages 103–104, 2012.
+                                                                                           that were sent to other ASes
+[62]   Matthias Wählisch, Robert Schmidt, Thomas C. Schmidt, Olaf Maennel,             3: end procedure
+       Steve Uhlig, and Gareth Tyson. RiPKI: The Tragic Story of RPKI
+       Deployment in the Web Ecosystem. In Jaudelice de Oliveira, Jonathan
+       Smith, Katerina J. Argyraki, and Philip Levis, editors, Proceedings of           1: procedure S END P REVENTIVE A NN (a, subp)
+       the 14th ACM Workshop on Hot Topics in Networks (HotNets), pages
+                                                                                        2: if I S C USTOMER (a.f rom) then
+       11:1–11:7. ACM, November 2015.
+                                                                                        3:    return
+[63]   R. White. Deployment Considerations for Secure Origin BGP (soBGP).,
+       June 2003.                                                                       4: end if
+[64]   Meiyuan Zhao, Sean W. Smith, and David M. Nicol. Aggregated path                 5: if a has a transitive field indicating hole then
+       authentication for efficient BGP security. In Proc. of CCS, 2005.                6:    return
+[65]   X. Zhao, D. Pei, L. Wang, D. Massey, A. Mankin, S. Wu, and L. Zhang.             7: end if
+       Detection of invalid routing announcements in the Internet. In Proc. of          8: Create a preventive announcement ann
+       IEEE DSN, 2002.                                                                  9: ann.pre = subp
+                                                                                       10: ann.path = a.path
+                        A PPENDIX A                                                    11: Set transitive flag in ann to mark that it is a preventive
+              AUXILIARY P SEUDO - CODE IN ROV++                                            announcement
+                                                                                       12: Send ann only to customers that have not sent a.pre to
+    In Alg. 2, we present the pseudo-code of several procedures                            this AS
+in ROV++ that are not described in Section III-C. Let B denote                         13: end procedure
+the set of blackholes that is set up at a router. Initially B is
+empty. For a hole ∈ H, let hole.path denote the AS path in                              1: procedure W ITHDRAW P REVENTIVE A NN (a, subp)
+the announcement. Similarly, for an announcement ann ∈ A,                               2: Withdraw preventive announcements with prefix subp that
+let ann.path denote the AS path in the announcement.                                       was sent to other ASes due to announcement a
+                                                                                        3: end procedure
+                           A PPENDIX B
+                  OTHER P ERFORMANCE R ESULTS
+   Figures 13 and 14 show the results for the adopting and                             corresponding results for the ASes in the category of other
+non-adopting ASes, respectively, under subprefix hijacks in                            ASes (i.e., not in top 100 and not edge ASes).
+the category of top 100 ASes. Figures 15 and 16 show the
+
+                                                                                  17
+                   (a) Hijack rate.                           (b) Successful connection rate.               (c) Disconnect rate.
+Figure 13.   Subprefix hijacks: Data plane results for adopting ASes in the category of top 100 ASes.
+
+
+
+
+                   (a) Hijack rate.                           (b) Successful connection rate.               (c) Disconnect rate.
+Figure 14.   Subprefix hijacks: Data plane results for non-adopting ASes in the category of top 100 ASes.
+
+
+
+
+                   (a) Hijack rate.                           (b) Successful connection rate.               (c) Disconnect rate.
+Figure 15.   Subprefix hijacks: Data plane results for adopting ASes in the category of other ASes.
+
+
+
+
+                   (a) Hijack rate.                           (b) Successful connection rate.               (c) Disconnect rate.
+Figure 16.   Subprefix hijacks: Data plane results for non-adopting ASes in the category of other ASes.
+
+
+
+
+                                                                             18
+

@@ -1,0 +1,537 @@
+                     A Survey among Network Operators
+                          on BGP Prefix Hijacking
+                    Pavlos Sermpezis                                                     Vasileios Kotronis
+                     FORTH-ICS, Greece                                                     FORTH-ICS, Greece
+                    sermpezis@ics.forth.gr                                                vkotronis@ics.forth.gr
+
+                    Alberto Dainotti                                             Xenofontas Dimitropoulos
+                 CAIDA, UC San Diego, USA                                  FORTH-ICS and University of Crete, Greece
+                     alberto@caida.org                                               fontas@ics.forth.gr
+
+                     This article is an editorial note submitted to CCR. It has NOT been peer reviewed.
+    The authors take full responsibility for this article’s technical content. Comments can be posted through CCR Online.
+
+
+ABSTRACT                                                               it does not own. These advertisements propagate and “pol-
+BGP prefix hijacking is a threat to Internet operators and             lute” many ASes, or even the entire Internet, affecting ser-
+users. Several mechanisms or modifications to BGP that pro-            vice availability, integrity, and confidentiality of communi-
+tect the Internet against it have been proposed. However,              cations. This phenomenon, called BGP prefix hijacking, is fre-
+the reality is that most operators have not deployed them              quently observed [27], and can be caused by router miscon-
+and are reluctant to do so in the near future. Instead, they           figurations [1, 2] or malicious attacks [3, 23, 27].
+rely on basic –and often inefficient– proactive defenses to re-        Current defenses are not sufficient. Currently, networks
+duce the impact of hijacking events, or on detection based             rely on practical reactive mechanisms to defend against pre-
+on third party services and reactive approaches that might             fix hijacking, since proactive mechanisms such as RPKI [17–
+take up to several hours. In this work, we present the results         20, 26] are fully efficient only when globally deployed1 , and
+of a survey we conducted among 75 network operators to                 operators are reluctant to deploy them due to associated
+study: (a) the operators’ awareness of BGP prefix hijacking            technical and financial costs [12, 13, 15, 21, 22]. Reactive
+attacks, (b) presently used defenses (if any) against BGP pre-         mechanisms mainly operate in two stages: detection (e.g.,
+fix hijacking, (c) the willingness to adopt new defense mech-          based on monitoring data) and mitigation (e.g., based on lo-
+anisms, and (d) reasons that may hinder the deployment of              cal network actions, such as originating BGP advertisements)
+BGP prefix hijacking defenses. We expect the findings of this          of the hijack. The speed of the reactive defenses is crucial;
+survey to increase the understanding of existing BGP hijack-           even short-lived events can have severe consequences [3].
+ing defenses and the needs of network operators, as well as            However, the reality shows that, currently, hijacking events
+contribute towards designing new defense mechanisms that               are not quickly mitigated. For instance, back in 2008, a hi-
+satisfy the requirements of the operators.                             jacking event affected YouTube’s prefixes and disrupted its
+                                                                       services for 2 hours [11]. More recently, in Sep. 2016, Back-
+CCS CONCEPTS                                                           Connect (AS203959) hijacked, at different times, several ASes;
+• Networks → Routing protocols; Network manage-                        the events lasted for several hours [4]. In Jan. 2017, the Ira-
+ment; • Security and privacy → Network security;                       nian state telecom TIC hijacked disparate pornographic web-
+                                                                       sites for more than a day [5]. In Apr. 2017, financial ser-
+                                                                       vices, like Visa and Mastercard, and security companies, like
+1   INTRODUCTION
+                                                                       Symantec, were hijacked by a Russian company for seven
+The Internet is composed of tens of thousands of intercon-             minutes [6]. In Aug. 2017, an accidental hijack (route leak)
+nected Autonomous Systems (ASes), which are networks                   from Google led to a large-scale internet disruption that slowed
+belonging to different administrative entities. ASes use the           or blocked access to websites and online services for dozens
+Border Gateway Protocol (BGP) [16] to advertise address                of Japanese companies for ten minutes [7]. In Dec. 2017, 80
+space (as IPv4/IPv6 network prefixes) and establish inter-             prefixes normally announced by high-profile organizations
+domain routes in the Internet. BGP is a distributed proto-
+col, lacking authentication of advertised routes. As a result,         1 Even the accurate measurement of the adoption of the proactive RPKI
+
+an AS is able to advertise illegitimate routes for IP prefixes         mechanism is a challenge itself [24].
+
+ACM SIGCOMM Computer Communication Review                                                                Volume 48 Issue 1, January 2018
+
+
+
+                                                                  64
+such as Google, Apple, Facebook, Microsoft and others were              ISP (tier−1 multi−national)   4%
+                                                                                                                                           Africa        21.3%
+wrongly re-routed to a newly assigned Russian AS for sev-                     ISP (multi−national)
+                                                                       ISP (large mainly domestic)
+                                                                                                      4%
+                                                                                                            13.3%                           Asia              32%
+eral minutes [8].                                                          ISP (regional domestic)                         33.3%
+                                                                                                                                        Australia      16%
+                                                                      Content Distribution Network          13.3%
+Survey motivation and contributions. To surpass exist-                             Cloud provider                  22.7%                  Europe                                 62.7%
+
+ing shortcomings and achieve efficient resolution of hijack-                                   IXP
+                                                                             Web hosting provider
+                                                                                                           9.3%
+                                                                                                                   21.3%
+                                                                                                                                   North America                       49.3%
+
+
+ing events, new defense approaches that fit the needs and                                    Other                18.7%
+                                                                                                                                   South America         21.3%
+
+
+requirements of the operators are needed. We launched a                                           0          20          40
+                                                                                                      percentage of answers %
+                                                                                                                                                   0   20        40         60
+                                                                                                                                                       percentage of answers %
+                                                                                                                                                                                         80
+
+survey [10] to increase the understanding of currently used
+                                                                                                (a)                                                     (b)
+BGP hijacking defenses, and to receive feedback directly from
+network operators about their needs. We acquired valuable
+information from this survey that is useful to design defense         Figure 1: Information about the organization of the
+systems that overcome existing issues in terms of efficiency          participants: (a) terms that best characterize each orga-
+and deployability.                                                    nization, and (b) continents in which it operates. Note
+   However, the findings of the survey are more general and           that an organization might be characterized by more
+can be beneficial for both researchers and operators. Researchers     than one terms and operate in many continents.
+can evaluate the severity of the problem of BGP prefix hi-
+jacking as it is seen from the operator community, and in-
+vestigate new defense mechanisms capitalizing on current              against BGP prefix hijacking, such as RPKI, (ii) how they
+operational practices. Operators can be informed about the            detect and mitigate a hijacking event affecting their prefixes,
+trends in the BGP prefix hijacking issue and the employed             and (iii) the characteristics they consider desirable (or not)
+defenses, provide valuable feedback to the network commu-             in a future defense (detection/mitigation) system.
+nity themselves, and adjust accordingly the way they man-                A detailed presentation of the survey questions and an-
+age and protect their networks against hijacks.                       swers is provided as supplementary material (also available
+                                                                      in [25]).
+Structure. In Section 2 we present the questions of the sur-
+vey, and in Section 3 we discuss the main findings and their
+                                                                      3 SURVEY RESULTS
+implications.
+                                                                      We classify the survey findings in 4 categories, which we
+                                                                      present in the following sections: (i) evaluation of impact of
+2   SURVEY PROFILE AND QUESTIONS                                      hijacks (Section 3.1), (ii) general information about current
+We launched a survey [10] on network operators’ mailing               defense mechanisms employed against hijacks (Section 3.2),
+lists, such as NANOG and RIPE. The survey is anonymous                (iii) specific information on the detection and mitigation stages
+and comprises 21 questions studying (a) the operators’ aware-         in today’s operations (Section 3.3), and (iv) requirements
+ness of BGP prefix hijacking attacks, (b) presently used de-          posed on new mitigation mechanisms (e.g., involving out-
+fenses against BGP prefix hijacking, (c) the willingness to           sourcing defense functionality to third parties), as well as
+adopt new defense mechanisms, and (d) reasons that may                the willingness of operators to adopt them (Section 3.4).
+hinder the deployment of BGP prefix hijacking defenses. We
+received answers from 75 participants operating a broad va-           3.1         Impact of Hijacks
+riety of networks all over the world, working at different
+positions (engineering, management, etc.).                            BGP prefix hijacking is a real threat and concerns net-
+   The survey/questionnaire is composed of three parts.               work operators. More than 40% of the operators reported
+                                                                      that their organization has been a victim of a hijack in the
+(1) Information about the participants and their orga-                past. Moreover, the vast majority is concerned about BGP
+nizations. In the first part we ask the participants to pro-          prefix hijacking in the Internet and its potential impact on
+vide information about the type (e.g., ISP, CDN) and location         their own networks. Almost all operators are knowledge-
+of their organization. Fig. 1 presents the results.                   able on the issue of hijacks and the involved mechanisms.
+(2) Knowledge and Experience with BGP Prefix Hijack-                  Hijacks have a severe and lasting impact. Operators eval-
+ing. The second part consists of questions related to the par-        uate the impact of a potential hijack targeting their network
+ticipants’ awareness and concern about BGP prefix hijack-             (in terms of duration and number of disrupted services) as
+ing, including their experience with past hijacking events            shown in Table 1. The vast majority (76%) expects the im-
+on their networks.                                                    pact of a hijack to last for a long time (few hours or more),
+(3) Defenses against BGP Prefix Hijacking. The last part              while opinions are divided on whether the hijack will af-
+asks the participants about (i) the defenses they use (if any)        fect a few or many of their services/clients, indicating that
+
+ACM SIGCOMM Computer Communication Review                                                                                      Volume 48 Issue 1, January 2018
+
+
+
+                                                                 65
+                                          40
+                                                                                                                 I do not know - 1%           complexity / risk of failures                        26.7%
+                                          35                                             Yes (ROA & ROV) - 12%
+                                                                   32.1%
+                                                                                                                                                      processing overhead                  13.3%
+
+                percentage of answers %
+                                          30
+                                                                           25%                                                                                OPEX costs                             29.3%
+                                          25                                          Yes (ROA) - 15%
+                                                                                                                                                             CAPEX costs                     18.7%
+                                          20
+                                                                                                                                                      little security benefit                  21.3%
+                                               14.3% 14.3% 14.3%                      Yes (ROV) - 1%
+                                          15
+                                                                                                                                                       not widely adopted                                    40%
+                                          10
+                                                                                                                               No - 71%                                      0     10    20     30    40           50
+                                          5                                                                                                                                       percentage of answers %
+
+                                          0
+                                               <1m <15m    <1h     <24h >24h
+                                                                                                          (a)                                                                   (b)
+
+
+Figure 2: Experience of participants with BGP prefix                                  Figure 3: (a) Usage of RPKI in participants’ organiza-
+hijacking events having as victim their organization:                                 tions, and (b) main reasons for not using RPKI.
+duration that the network of the organization was af-
+fected by a hijack.
+
+                                                                                      Practical defenses include route filtering, extensive peer-
+there are concerns both for extended (e.g., route leaks) and                          ing, and de-aggregation. The responses to the (optional)
+limited/targeted (e.g., malicious attacks) hijacks. Moreover,                         question of what other defense mechanisms are used by net-
+their past experience (Fig. 2) shows that most hijacks in-                            works are shown in Fig. 4. The majority of the participants,
+deed lasted long: more than 57% of hijacks lasted more than                           i.e., 17 networks (among those who provided answers for
+an hour, while 25% lasted more than a day; around 28% are                             this optional question), use route filtering as a proactive de-
+short-term hijacks, lasting a few minutes (14.3%) or seconds                          fense to protect their own and their customers’ prefixes from
+(14.3%).                                                                              being hijacked. Route filtering is implemented in various ways
+                                                                                      (based on their answers) including for example: prefix ori-
+Table 1: “How severe do you consider the potential im-                                gin (e.g., from IRR records) or AS-path filtering; filtering
+pact of a BGP prefix hijacking against your network?”                                 at edge routers (with customers/peers) or route servers (at
+                                                                                      IXPs). Less popular approaches are anycast (2 answers) and
+                                                   no                                 prefix de-aggregation (4 answers). Finally, 5 operators (from
+                                                 impact ∼min. ∼hours                  CDNs or tier-1 networks) mention that they peer with many
+                few                                                                   other networks extensively; this helps them protect their
+             services/                               0%          9.3% 28.0%           networks from hijacking events (i.e., by reducing their im-
+              clients                                                                 pact).
+               many
+             services/                               0%          9.3% 48.0%
+              clients                                                                                   AS−path / prefix filtering                                      17
+
+                                                                                                                         Anycast          2
+
+                                                                                                                Extensive peering                 5
+3.2    Defenses against Hijacks
+                                                                                                                            DDoS      1
+RPKI deployment is limited. In accordance with previous
+                                                                                                                  Deaggregation               4
+studies [14], most of the network operators (71%) answered
+that they have not deployed RPKI as a proactive defense                                                                           0           5      10     15     20                 25
+                                                                                                                                                  number of answers
+mechanism in their networks (Fig. 3(a)); very few (12%) use
+the full functionality of RPKI (Route Origin Authorisation                            Figure 4: Practical defenses –other than RPKI– used
+- ROA and Route Origin Validation - ROV). There are vari-                             by some networks (60% of participants) against BGP
+ous reasons for this, as shown in Fig. 3(b); deployment lags                          hijacks.
+mainly due to RPKI’s limited adoption and little security ben-
+efits, but also due to the increased CAPEX and OPEX costs,
+and increased complexity and processing overhead associated
+                                                                                      3.3       Detection and Mitigation of Hijacks
+with the protocol mechanisms. Therefore, about 60% of the
+operators replied that they resort to other mechanisms and                            Hijack detection mainly relies on third parties. The ma-
+practical defenses to protect their networks against BGP hi-                          jority of networks (61.3%) use a third party detection service,
+jacks.                                                                                which notifies them about hijacking incidents against their
+
+ACM SIGCOMM Computer Communication Review                                                                                             Volume 48 Issue 1, January 2018
+
+
+
+                                                                                 66
+prefixes, as shown in Fig. 5(a). BGPmon [9] is the most pop-                                                                              and are willing to proceed to similar actions after a hijack-
+ular detection service among the answers in our survey. The                                                                               ing event –affecting their networks– has taken place.
+satisfaction of operators from third parties generally varies
+a lot; some use them because they are satisfied and others                                                                                3.4         New Mitigation Mechanisms
+because there are no alternatives (e.g., it is not possible to
+                                                                                                                                          The survey results show that the main practices that net-
+develop their own detection service)2 . Moreover, 17.3% of
+                                                                                                                                          works currently use for hijack mitigation comprise prefix de-
+networks also practically rely on third parties, since they
+                                                                                                                                          aggregation and contacting other networks (Fig. 4 and 5(b)).
+expect to get notified about a hijack by receiving notifica-
+                                                                                                                                          Since these approaches have some important shortcomings,
+tion from colleagues, clients, mailing lists, etc. In total, 78.6%
+                                                                                                                                          e.g., de-aggregation is not efficient when a /24 prefix is hi-
+of the networks rely on third parties for the detection of hi-
+                                                                                                                                          jacked (due to upstream filtering), and contacting network
+jacks against their prefixes. About one third of the networks
+                                                                                                                                          operators is usually done manually and thus adds signifi-
+have deployed a local hijack detection mechanism (e.g., by
+                                                                                                                                          cant delay to the mitigation process, we ask the network
+monitoring the disruption of their services)3 . Finally, a non-
+                                                                                                                                          operators about their willingness to deploy new mitigation
+negligible percentage of 8% would probably not learn about
+                                                                                                                                          mechanisms, as well as what desired characteristics these
+a hijack.
+                                                                                                                                          mechanisms should possess.
+                                                                                                                                             We first ask them about their willingness to outsource
+               I would not learn    8%
+                                                                         Contact other networks                19                         functions related to the detection and mitigation of hijacks
+    3rd−party detection service                          61.3%
+                                                                          Prefix de−aggregation        5
+                                                                                                                                          to a third party, in order to enhance their defenses. 61% of
+        Local detection system                   37.3%
+                                                                               Both of the above                           48
+                                                                                                                                          the operators are not willing to proceed to such outsourc-
+Notification from other networks         17.3%
+                                                                 I will not proceed to any actions 1
+                                                                                                                                          ing practices. This shows that a potential mechanism should
+                                   5.3%
+                  I do not know
+                                                                                                                                          not be entirely based on outsourcing, since this would not
+                          Other          17.3%                                             Other 3
+                                                                                                                                          be acceptable by many networks. Flexible approaches that
+                               0       20    40     60
+                                   Percentage of answers %
+                                                          80                                     0            20      40
+                                                                                                           number of answers
+                                                                                                                                60
+                                                                                                                                          could be operated in two modes, i.e., self-operated and out-
+                           (a)                                                               (b)                                          sourced, could be promising, since a significant percentage
+                                                                                                                                          of 39% does not reject the possibility to outsource such func-
+                                                                                                                                          tions.
+Figure 5: Detection and mitigation of hijacking events.
+                                                                                                                                             The reasons for the operators’ reluctance to outsource
+How network operators (a) learn about and (b) miti-
+                                                                                                                                          are given in Fig. 6(a), where the associated (high) cost and
+gate hijacking incidents against their prefix(es).
+                                                                                                                                          the need to share private information about their network
+                                                                                                                                          are the main factors. Administrative and technical overhead
+Mitigating through de-aggregation and contacting other                                                                                    may also prevent outsourcing. This is a first indication about
+networks. Asking operators what would be the counter-                                                                                     the characteristics of a potential defense system: low cost,
+measures they would take to mitigate a prefix hijacking4                                                                                  privacy-preserving, and easy to operate and manage.
+(see Fig. 5(b)), the majority (62.7%) responded that they would
+announce more specific prefixes (de-aggregation) and con-
+tact the offending network (i.e., the hijacker) or its providers.                                                                                                                                               My ASN(s) and prefixes 5.3%
+
+5.3% would follow only the former approach (de-aggregation)                                                                                                 Cost                          45.3%                     My AS−neighbors 5.3%
+                                                                                                                                                                                                                    My Export Policies     18.7%
+
+and 25.3% only the latter (contacting other operators). This                                                                                  Shared information                      38.7%                      My Local Preferences      20%
+
+
+indicates that although de-aggregation is not widely used                                                                                 Administrative overhead            24%                          THEIR equipment and ASN(s)
+                                                                                                                                                                                                       THEIR equipment and MY ASN(s)
+                                                                                                                                                                                                                                                            58.7%
+                                                                                                                                                                                                                                                         49.3%
+currently (see Fig. 4), operators still find it a good solution                                                                               Technical overhead                  29.3%                  MY equipment and MY ASN(s)            16%
+                                                                                                                                                                                                                     Tunnel MY traffic                  45.3%
+                                                                                                                                                           Other          18.7%
+2 This variation can be observed in the following examples from the detailed                                                                                                                                  Share/allow all the above       13.3%
+
+answers in our survey:                                                                                                                                          0         20         40
+                                                                                                                                                                     percentage of answers %
+                                                                                                                                                                                                  60                                      0     20   40     60   80
+                                                                                                                                                                                                                                           percentage of answers %
+“pretty happy with it”, “no issues so far”, “it works fine [..], but is relatively
+limited”, “I hate it”, “It’s ok”, “ it seems to work quite well the few times I have                                                                                (a)                                                         (b)
+needed it”, “Better than nothing, but a lot of false alerts”, “It rules!”, “It is very
+noisy because it does not know a damn thing about IXP route servers”, “Not                                                                Figure 6: Outsourcing prefix hijacking mitigation. (a)
+great”.
+3 Among the “other” answers, a high percentage of answers relates to the                                                                  Main factors that would affect the decision not to out-
+observation of –or, reception of complaints about– disruption in their                                                                    source prefix hijacking mitigation. (b) Assuming a
+services.                                                                                                                                 fully trusted outsourcing organization, the informa-
+4 Note that for this question, we provided the choices, based on the answers
+                                                                                                                                          tion/control (if any) that operators are still not willing
+received in a preliminary version of our survey; operators could have an-
+                                                                                                                                          to share/allow.
+swered in a different way if this was a completely open question.
+
+ACM SIGCOMM Computer Communication Review                                                                                                                                                      Volume 48 Issue 1, January 2018
+
+
+
+                                                                                                                                     67
+   More specific results about what would be the informa-                             In terms of detection, we observe that operators mainly
+tion/control that they would not be willing to share/allow                         rely on third parties, such as BGPmon. However, the level of
+with an outsourcing organization, are given in Fig. 6(b). As                       satisfaction varies wildly across operators. Moreover, most
+it can be seen, most of them are willing to share informa-                         of them are reluctant to perform similar outsourcing for the
+tion about their prefixes and AS-neighbors (95%), as well as                       mitigation of the hijacks themselves; in fact, there are mixed
+their routing policies (80%). A smaller percentage would al-                       feelings about the kind and amount of information they would
+low BGP announcements to be controlled or implemented                              be willing to disclose to the third party, as well as the in-
+by the outsourcing organization.                                                   volved costs and technical and administrative overhead. The
+   Finally, according to operators, the importance of differ-                      speed and effectiveness of the mitigation stage, as well as the
+ent characteristics that a hijack defense system should have,                      self-operability and low cost and management overhead, are
+is shown in Fig. 7, where the rightmost characteristics are                        of paramount importance; moreover, the detection stage is
+considered of the highest importance. The speed and effec-                         required to generate few false positives, mandating high lev-
+tiveness of the mitigation stage, as well as the self-operability                  els of detection accuracy. The findings of this survey could
+and low cost and management overhead, are the highest-                             inform the design and implementation of new concepts and
+ranked characteristics. Moreover, the detection stage is re-                       methodologies, as well as more secure inter-domain routing
+quired to generate few false positives, which indicates the                        protocols in general.
+need for high levels of detection accuracy.
+                                                                                   ACKNOWLEDGEMENTS
+                                                                          n
+                                                                      tio
+
+
+
+
+                                                                                   This work was supported by the European Research Coun-
+                                                                   ra
+                                                                gu
+                                                             nfi
+
+
+
+
+                                                                                   cil grant agreement no. 338402, the National Science Foun-
+                                                              g
+                                                           in
+                                                          co
+
+
+                                                         ot
+                 Falf-m f o lati s to ete icie n)
+                                                  w )
+                                      on n cti s)
+
+                                                        k
+                                                et o n
+
+
+
+                                                     ho
+                 Se se o st sta nge s (d p o ctio
+
+
+                                                     or
+
+
+
+
+                                                                                   dation grant CNS-1423659, and the Department of Home-
+                                             ed es
+
+
+
+                                                   n
+                                                  l
+                                                 e
+
+
+
+
+                                               tio
+                                         at l
+                          en o n er o u b
+                 Eaw c f in cha tivetingdet
+
+
+
+
+                                            ga
+
+
+
+
+                                                                                   land Security (DHS) Science and Technology Directorate,
+                 Lo se um p os roues (
+
+
+
+
+                       tiv ti op tr
+
+
+
+                                        iti
+                    ec i g a d / g /
+
+
+
+                                      m
+                 Ea nim lse .g., tiv
+
+
+
+
+                 Eff mit age atin
+
+
+
+                                   of
+                   i a e a
+
+                                   i
+
+
+
+
+                                                                                   Cyber Security Division (DHS S&T/CSD) via contract num-
+                 M w f y ( n eg
+
+
+
+
+                                 l
+
+
+
+
+                               s
+                               r
+
+
+                            es
+                    s t an p e
+                 Loiva alse
+
+
+
+
+                                                                                   ber HHSP233201600012C.
+                        o
+                        c
+
+
+                       o
+                 Prw f
+                 Lo
+
+
+
+
+                Low                                          High
+                            Importance of characteristics
+
+                                                                                   REFERENCES
+Figure 7: Importance of characteristics of a defense                                [1] https://www.ripe.net/publications/news/
+system according to network operators.                                                 industry-developments/youtube-hijacking-a-ripe-ncc-ris-case-study .
+                                                                                    [2] http://www.bgpmon.net/chinese-isp-hijacked-10-of-the-internet/ .
+                                                                                    [3] https://www.wired.com/2014/08/isp-bitcoin-theft/.
+                                                                                    [4] http://seclists.org/nanog/2016/Sep/122.
+4   CONCLUSION                                                                      [5] http://dyn.com/blog/iran-leaks-censorship-via-bgp-hijacks/ .
+                                                                                    [6] https://arstechnica.com/security/2017/04/
+In this work, to increase community understanding of ex-                                russian-controlled-telecom-hijacks-financial-services-internet-traffic/ .
+isting BGP hijacking defenses and the needs of network op-                          [7] https://bgpmon.net/bgp-leak-causing-internet-outages-in-japan-and-beyon
+erators, we presented the results of a survey of 75 network                         [8] https://bgpmon.net/popular-destinations-rerouted-to-russia/.
+operators around the world.                                                         [9] BGPmon (commercial). http://www.bgpmon.net.
+                                                                                   [10] Survey on BGP prefix hijacking. http://tinyurl.com/hijack-survey.
+   Through the survey, we verified our intuition that BGP
+                                                                                   [11] YouTube Hijacking: A RIPE NCC RIS case study. http://www.
+prefix hijacking is a real threat and concerns the vast major-                          ripe.net/internet-coordination/news/industry-developments/
+ity of network operators; in fact, hijacks can have a severe                            youtube-hijacking-a-ripe-ncc-ris-case-study, March 2008.
+and lasting impact on their own networks. In the context of                        [12] D. Cooper, E. Heilman, K. Brogle, L. Reyzin, and S. Goldberg. On the
+combatting such hijacks, operators can use proactive or re-                             Risk of Misbehaving RPKI Authorities. In Proc. of ACM Workshop on
+                                                                                        Hot Topics in Networks (HotNets-XII), 2013.
+active techniques. On the one hand, proactive mechanisms,
+                                                                                   [13] W. George. Adventures in RPKI (non) Deployment. https://www.
+such as RPKI, have gained extremely little traction for mul-                            nanog.org/sites/default/files/wednesday_george_adventuresinrpki_
+tiple reasons, including limited adoption and high cost and                             62.9.pdf, 2014. NANOG presentation.
+complexity of deployment. On the other hand, practical reac-                       [14] Y. Gilad, A. Cohen, A. Herzberg, M. Schapira, and H. Shulman. Are
+tive defenses such as contacting other networks, route filter-                          we there yet? on RPKI’s deployment and security. In Proc. NDSS, 2016.
+                                                                                   [15] S. Goldberg. Why is it taking so long to secure internet routing? Com-
+ing, extensive peering and prefix de-aggregation are usually
+                                                                                        munications of the ACM, 57(10):56–63, 2014.
+preferred methods to mitigate hijacks; however, each has its                       [16] S. Hares, Y. Rekhter, and T. Li. A border gateway protocol 4 (bgp-4).
+own significant limitations, ranging from very slow mitiga-                             https://tools.ietf.org/html/rfc4271, 2006.
+tion speeds (e.g., contacting other operators) to inefficient                      [17] J. Karlin, S. Forrest, and J. Rexford. Pretty good bgp: Improving bgp
+mitigation (e.g., de-aggregation for /24 prefixes).                                     by cautiously adopting routes. In Proc. IEEE ICNP, 2006.
+
+ACM SIGCOMM Computer Communication Review                                                                       Volume 48 Issue 1, January 2018
+
+
+
+                                                                              68
+[18] S. Kent, C. Lynn, and K. Seo. Secure border gateway protocol (s-             [23] A. Ramachandran and N. Feamster. Understanding the network-level
+     bgp). IEEE Journal on Selected Areas in Communications, 18(4):582–                behavior of spammers. ACM SIGCOMM Computer Communication
+     592, 2000.                                                                        Review, 36(4):291–302, 2006.
+[19] M. Lepinski. BGPSEC protocol specification. https://tools.ietf.org/          [24] A. Reuter, R. Bush, Í. Cunha, E. Katz-Bassett, T. C. Schmidt, and
+     html/rfc8205, 2015.                                                               M. Wählisch. Towards a Rigorous Methodology for Measuring Adop-
+[20] M. Lepinski, R. Barnes, and S. Kent. An infrastructure to support se-             tion of RPKI Route Validation and Filtering. ACM SIGCOMM Com-
+     cure internet routing. https://tools.ietf.org/html/rfc6480, 2012.                 puter Communication Review, 2018.
+[21] R. Lychev, S. Goldberg, and M. Schapira. BGP Security in Partial De-         [25] P. Sermpezis, V. Kotronis, A. Dainotti, and X. Dimitropoulos. A survey
+     ployment: Is the Juice Worth the Squeeze? In Proc. of ACM SIGCOMM,                among network operators on BGP prefix hijacking. arXiv, http://arxiv.
+     2013.                                                                             org/abs/1801.02918, 2018.
+[22] S. Matsumoto, R. M. Reischuk, P. Szalachowski, T. H.-J. Kim, and             [26] L. Subramanian, V. Roth, I. Stoica, S. Shenker, and R. Katz. Listen and
+     A. Perrig. Authentication Challenges in a Global Environment. ACM                 whisper: Security mechanisms for bgp. In Proc. NSDI, 2004.
+     Trans. Priv. Secur., 20:1:1–1:34, 2017.                                      [27] P.-A. Vervier, O. Thonnard, and M. Dacier. Mind your blocks: On the
+                                                                                       stealthiness of malicious bgp hijacks. In Proc. NDSS, 2015.
+
+
+
+
+ACM SIGCOMM Computer Communication Review                                                                           Volume 48 Issue 1, January 2018
+
+
+
+                                                                             69
+

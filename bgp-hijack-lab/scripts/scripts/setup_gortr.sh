@@ -199,6 +199,7 @@ R1_NEIGHBORS="$(get_bgp_neighbors "$R1" | tr '\n' ' ')"
 if [ -z "${R1_NEIGHBORS// }" ]; then
   warn "Could not detect BGP neighbors from running-config on R1; policy will not be applied automatically."
 else
+  # Build a single vtysh config transaction.
   VTY_ARGS=(
     -c "route-map RPKI_IN deny 10"
     -c "match rpki invalid"

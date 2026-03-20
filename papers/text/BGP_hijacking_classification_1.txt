@@ -1,0 +1,651 @@
+                                   BGP hijacking classiﬁcation
+       Shinyoung Cho                  Romain Fontugne                Kenjiro Cho                Alberto Dainotti                    Phillipa Gill
+   Stony Brook University              IIJ Research Lab           IIJ Research Lab          CAIDA, UC San Diego                  UMass Amherst
+  shicho@cs.stonybrook.edu              romain@iij.ad.jp            kjc@iijlab.net            alberto@caida.org               phillipa@cs.umass.edu
+
+
+
+
+   Abstract—Recent reports show that BGP hijacking has in-                      often relies on AS relationships that are difﬁcult to infer
+creased substantially. BGP hijacking allows malicious ASes to                   accurately. Alternatively, ARTEMIS [25] accurately detects
+obtain IP preﬁxes for spamming as well as intercepting or                       all attack conﬁgurations but only towards preﬁxes owned by
+blackholing trafﬁc. While systems to prevent hijacks are hard to
+deploy and require the cooperation of many other organizations,                 the network running it, making it not applicable to detect
+techniques to detect hijacks have been a popular area of study.                 attacks towards other preﬁxes or to global monitoring Besides,
+In this paper, we classify detected hijack events in order to                   other BGP anomalies (e.g. link failure, misconﬁguration) can
+document BGP detectors output and understand the nature of                      make detection techniques less accurate or the interpretation
+reported events. We introduce four categories of BGP hijack:                    of the detected event more difﬁcult. More recently, some
+typos, prepending mistakes, origin changes, and forged AS paths.
+We leverage AS hegemony – a measure of dependency in AS                         approaches aim to differentiate between different types of BGP
+relationship – to identify forged AS paths in a fast and efﬁcient               anomalies, such as misconﬁguration, link failure, or worm
+way. Besides, we utilize heuristic approaches to ﬁnd common                     attacks [14], [15], [24], [27]–[29]. However, they do not aim
+operators’ mistakes such as typos and AS prepending mistakes.                   to classify BGP hijack events. To our best knowledge, only
+The proposed approach classiﬁes our collected ground truth into                 Argus [13], [30] takes BGP hijacking into account in their
+four categories with 95.71% accuracy. We characterize publicly
+reported alarms (e.g. BGPMon) with our trained classiﬁer and                    classiﬁcation of anomalies. Argus classiﬁes BGP anomalies
+ﬁnd 4%, 1%, and 2% of typos, prepend mistakes, and BGP                          into four groups: link failure, hijacking, route migration, and
+hijacking with a forged AS path, respectively.                                  trafﬁc engineering. However, Argus only classiﬁes hijacking
+                                                                                that causes blackholes (not interceptions), and their system re-
+                         I. I NTRODUCTION                                       quires access to real-time data plane measurements to perform
+   The Border Gateway Protocol (BGP) is the Internet’s de                       such classiﬁcation.
+facto inter-domain routing protocol [1]. It allows an Au-                          In this work, we focus on distinguishing four types of BGP
+tonomous System (AS) to advertise the set of IP preﬁxes it                      hijack events: typos, prepending mistakes, origin changes, and
+manages as well as routes to destinations that its neighbors                    forged AS paths. We conjecture that these ﬁrst two event types
+can reach by routing trafﬁc towards it. BGP is based on trust,                  may be more indicative of a misconﬁguration or human error,
+where an AS is supposed to announce only IP preﬁxes it owns                     while the latter two may be more indicative of a malicious
+and legitimate paths to destinations. However, malicious ASes                   hijacking event. Note that route migration is not our focus in
+can take advantage of this trust model by announcing others’                    this paper. To classify events, we use supervised learning, a
+IP preﬁxes or by forging AS paths [2]. These techniques                         random forest (RF) classiﬁer, with ﬁve features (Section IV-B).
+are generally referred to as BGP hijacking [3]. BGP hijacks                     In our features, we leverage AS hegemony [31] to identify
+have been a problem on the Internet for over 20 years [4],                      forged AS paths in a fast and efﬁcient way without relying on
+with routing incidents regularly occurring. In 2018, 4,739                      inferred AS relationships. AS hegemony represents a score
+routing incidents have been disclosed by BGPmon, a popular                      of dependency in AS relationships and we can obtain the
+monitoring service [5]. Once an AS hijacks a preﬁx, the AS                      scores of all ASes from IIJ’s Internet Health Report (IHR)
+can blackhole or intercept the hijacked trafﬁc, or impersonate                  API [32]. For other classiﬁcation features, we use heuristics
+the legitimate receiver of the trafﬁc [6]. Moreover, the hijacker               that identify typos and prepending mistakes. To verify our
+AS can use the hijacked IP preﬁxes for spamming [7], [8].                       approaches, we run our classiﬁer on our collected ground-
+   While work on path validation [9] and RPKI [10] is actively                  truth data that is manually veriﬁed, we then use the trained
+underway in the IETF [11], deployment of these solutions that                   classiﬁer to characterize candidate BGP hijacking events (e.g.
+would prevent hijacking remains at an impasse. Since systems                    BGPMon [33]). We expect that our classiﬁer can help network
+to prevent hijacks are difﬁcult to deploy [12] and require                      operators to prioritize the handling of malicious BGP hijack
+the cooperation of many ASes, techniques to detect hijacks                      attacks as opposed to the events by human error. In this paper,
+after they occur have been a popular area of study [13]–[26].                   we make the following contributions:
+Existing works [13], [17] detect BGP hijacking by tracking
+whether any new pairs of neighboring ASes suddenly appear,                      Utilization of AS hegemony to detect forged AS path. We
+or by searching for the violation of a BGP policy (e.g. a valley-               demonstrate that we can utilize AS hegemony to detect forged
+free violation). However, the former approach may falsely                       AS paths (Section IV-B). In addition, by using both deﬁnitions
+capture enormous unrelated events, and the latter approach                      of AS hegemony (local and global AS hegemony) we improve
+
+978-3-903176-17-1 / © 2019 IFIP
+
+25
+     Authorized licensed use limited to: University of New Brunswick. Downloaded on March 08,2026 at 02:37:53 UTC from IEEE Xplore. Restrictions apply.
+                                                                
+                                                                     
+                                                                                         
+                                                 
+                                                                                       
+                                                                                                             
+                                                                                                                    
+                                          
+                                                                 Fig. 3. E XAMPLE OF AS PATH PREPENDING.
+
+               Fig. 1. E XAMPLE OF MULTIPLE ORIGIN AS ES.                       AS-Path manipulation. Since an origin change or an origin
+                                                                                legitimacy may be detected (e.g. via RPKI [10]), a hijacker
+                                                      may announce a forged path with its ASN on the path, but
+                                              
+                                                                                not as the route origin AS. The hijacker may place either the
+                                                 
+                                                                                legitimate route origin AS or an unrelated AS as the route
+                                                              
+                                                                                origin. For instance, Figure 2 shows that AS6 announces a
+                                                                                fake path, [AS6, AS1], as if it is neighboring to the legitimate
+                                                   origin, AS1. By doing this, a hijacker can evade an origin
+                                  
+                                                                                authentication.
+                Fig. 2. E XAMPLE OF PATH MANIPULATION.                          Typos in ASN or preﬁxes. When setting up routers, network
+                                                                                operators have to type their ASNs and preﬁxes to the router
+our detection accuracy.                                                         conﬁguration. In the process, there is a high chance for them
+Classifying different types of BGP hijacking events. We                         to mistype ASN or preﬁxes. For instance, in May 2016,
+show that we can classify the four aforementioned BGP                           AS203959 announced preﬁx 191.86.129.0/24, which was a
+hijacking events: typos, prepending mistakes, origin changes,                   more speciﬁc preﬁx that another AS had announced. This inci-
+and forged AS paths using our features. Our approach carries                    dent was noticed because multiple origin ASes had announced
+over to other measurement databases such as those generated                     the same preﬁx at the same time. Later on, it turned out that
+by BGPMon [33] and BGPStream [34]. With BGPMon’s                                this was not an intended BGP hijack but just a typo. The
+datasets, we ﬁnd 4%, 1%, and 2% of typos, prepend mistakes,                     reported hijacker, a network operator, mistyped the number 9
+and BGP hijacking with a forged AS path, respectively.                          to 8 when typing its own preﬁx 191.96.129.0/24 [35].
+                                                                                Wrong AS path prepend. Another common error happens
+II. BACKGROUND : A NOMALOUS BGP A NNOUNCEMENTS                                  when network operators try to prepend their ASNs to an-
+                    AND C AUSES                                                 nounced paths. AS path prepending is a trafﬁc engineering
+                                                                                technique that consists in adding multiple times an ASN to a
+  In this section, we overview the types of anomalous BGP                       path so that the advertised path becomes less desirable due to
+events that we look for in traces of BGP control-plane mes-                     its inﬂated path length. As shown in Figure 3, AS prepending
+sages. We ﬁrst overview two suspicious events that may be                       mistakes can happen when an operator writes the number, ”3”,
+observed in the control-plane and how they may be used                          of repetitions of the ASN, ”47868”, instead of writing the ASN
+by a malicious entity to perform preﬁx hijacking. We then                       multiple times, ”47868 47868 47868”, or when an operator
+overview two types of human error that may cause these types                    mistypes a sequence of the ASN such as ”48768” instead of
+of anomalies. Our goal in this work is to distinguish cases of                  ”47868”. The former case results in an origin change and the
+the ﬁrst two anomalies that can be explained by the latter two                  latter case results in a forged AS path.
+sources of error.
+                                                                                                             III. DATASETS
+Route origin change. A hijacker advertises to neighboring
+                                                                                   A challenge in a study of BGP hijacking is the limited
+ASes a preﬁx that it does not own, illustrated in Figure 1.
+                                                                                number of sources of ground truth data - speciﬁcally, which
+Since the BGP path selection process favors shorter paths
+                                                                                events are intended (i.e. planned trafﬁc engineering) versus
+(among paths where the next hop AS has the same LocalPref
+                                                                                those that are not (i.e. human error and potential hijacking
+value or business relationship), other ASes may choose the
+                                                                                attacks). In this section, we overview the ground truth data1
+illegitimate path announced by the hijacker if it is shorter than
+                                                                                we use to train our machine learning classiﬁer as well as the
+their paths to the legitimate AS. For example, AS5 may choose
+                                                                                longitudinal datasets we use to study the four routing event
+the illegitimate path announced by the hijacker (AS6) since the
+                                                                                types described in Section II. A summary of the datasets that
+path is shorter.
+                                                                                we use in our work is summarized in Table I.
+   In other cases, a hijacker announces a more speciﬁc version
+of the preﬁx announced by the legitimate AS. This type of                       A. Ground truth
+BGP hijack is particularly problematic because routers using                      We leverage two sources of unintended BGP routing events:
+the longest preﬁx match will select and advertise this route.                   potentially malicious hijacks and human error.
+Thus, packets are forwarded to the hijacker rather than to the
+legitimate AS.                                                                    1 https://github.com/grace71/bgp-hijacks-classiﬁer
+
+
+
+
+                                                                                                                                                          26
+     Authorized licensed use limited to: University of New Brunswick. Downloaded on March 08,2026 at 02:37:53 UTC from IEEE Xplore. Restrictions apply.
+Potentially malicious hijacks. It is difﬁcult to infer intent                                                TABLE I
+from BGP routing announcements. However, we can use                                                  DATASET CHARACTERISTICS .
+the articles about the unexpected and occasionally impactful                      Dataset              Ground truth       BGPMon          BGPStream
+BGP events from the Dyn blog [36] as a source of routing                          Period               2008-02            2018-05         2019-01-01
+announcements that are manually checked by experts and                                                 ∼2018-07a          ∼2019-02        ∼2019-01-31
+                                                                                  Total events         70                 2,418           566
+reported as suspicious.                                                           – w/MOAS             16                 2,418           526
+Likely typos. As a second set of anomalous BGP events,                            – w/New edges        18                 -               40
+we again use the articles on typos from the Dyn blog [35].                        – w/Typos            21                 -               -
+                                                                                  – w/Prepending       15                 -               -
+However, this type of report is rare so we also use data from
+                                                                                  Avg # of pathsb      669                795             157
+the BGPMon [33] platform. BGPMon reports possible BGP
+hijacking events on a daily basis, and all reported events are                    a Our ground truth includes only the events reported by and manually
+the cases where an illegitimate AS announces a preﬁx or                         checked, not all events that occurred during this period.
+                                                                                  b The average number of AS paths per event.
+more speciﬁc preﬁx owned by another AS (e.g. multiple origin
+ASes). BGPMon reports only events that are highly possible
+                                                                                to build a model of these events based on ﬁve main features
+to be BGP hijacking after excluding the obvious non-hijacking
+                                                                                using our ground truth dataset as input. A key metric used
+events. We use these events to ﬁnd possible events caused by
+                                                                                in two of our features is AS hegemony, which is a proxy for
+human error, for example, if the hijacked preﬁx (or ASN) is
+                                                                                measuring the importance of an AS in the Internet graph [31].
+similar to the hijacker’s legitimate preﬁxes (or ASN) and the
+                                                                                These two features allow us to identify potential forged paths,
+routing announcement is withdrawn in a short time after the
+                                                                                which are difﬁcult to infer accurately without knowing AS
+original announcement.
+                                                                                relationships. In this section, we ﬁrst review the principles of
+   We also look for cases where the origin AS is a number, n,
+                                                                                AS hegemony then we introduce all the features we use for
+less than ten and when we observe a rapid withdrawal followed
+                                                                                our classiﬁcation.
+by the origin prepended n times. We consider such events as
+prepending mistakes by network operators (see Figure 2 for a                    A. AS hegemony
+speciﬁc example of this).
+                                                                                   AS hegemony [31] is a metric that quantiﬁes the likelihood
+BGP data for ground truth events. After retrieving the                          of an AS to lie on paths toward certain destination IP preﬁxes.
+details of each event from Dyn [36] and BGPMon [33], we col-                    We distinguish two variants of this metric, global and local AS
+lect historical BGP data using CAIDA’s BGPStream [34], [37],                    hegemony. The global AS hegemony is computed with paths to
+which is an open source software framework for the analysis of                  all IP preﬁxes globally reported by the BGP viewpoints. In this
+both historical and real-time BGP data. To retrieve BGP data                    case, ASes with a large value stand for large transit networks
+from CAIDA’s BGPStream we need to know the preﬁx and                            that are commonly used to reach any host on the Internet. For
+likely time of the anomalous announcement/event. For events                     instance, tier-1 ASes, like Level 3 (AS3356), have the highest
+from Dyn we are able to retrieve relevant announcements                         scores, and stub ASes have the lowest scores.
+for 35 events. Similarly, for BGPMon, we also retrieve the                         The local AS hegemony is computed with paths from all
+BGP data for 35 events, all labelled as typos and prepending                    BGP viewpoints towards only one origin AS. In this case,
+mistakes (see Table I).                                                         high values stand for ASes that are commonly used to reach
+B. Additional datasets                                                          the given origin AS. For instance, computing the local AS
+                                                                                hegemony for UCSD (AS7377) reveals that the highest score
+   In addition to our ground truth data, we gather addi-
+                                                                                is attributed to the Californian academic network, CENIC
+tional data from BGPMon [33] and BGPStream [34], [37]
+                                                                                (AS2152), which is UCSD’s main upstream provider. We
+and characterize announcements and events in these datasets
+                                                                                obtain AS hegemony scores every 15 minutes for every AS
+with the features described in the following section. While
+                                                                                using Internet Health Report (IHR) API [32].
+BGPMon gives a pre-ﬁltered sample of highly likely BGP
+hijacks, BGPStream, in contrast, allows us to observe all                       B. Features
+anomalous BGP messages (e.g. multiple origin-AS preﬁxes)
+                                                                                 We now overview features we use to classify the different
+without ﬁltering to perform our analysis. We perform our own
+                                                                                BGP events.
+ﬁltering on data from BGPStream to avoid the cases that are
+likely trafﬁc engineering (e.g. by avoiding incidents involving                 Number of valleys (Global hegemony) With the global AS
+sibling ASes). We describe this in more detail in Section V-D                   hegemony, we identify BGP hijacking by path manipulation
+                                                                                and the violation of BGP policy. Usually the global AS
+                       IV. M ETHODOLOGY                                         hegemony values corresponding to an AS path have only
+   Our goal is to identify a set of features that can not only                  one local maximum around the middle of the path, which
+identify instances of multiple origin-AS preﬁx announcements                    means large transit ASes are located in the middle of the AS
+and forged paths but also distinguish those instances from the                  path. However, if we ﬁnd any valleys in global AS hegemony
+cases likely caused by human error (e.g. typos or misconﬁgur-                   values, as illustrated in Figure 4, we deﬁne them as anomalies.
+ing prepending). To accomplish this, we use machine learning                    In other words, if a rare transit AS with a low global AS
+
+
+
+27
+     Authorized licensed use limited to: University of New Brunswick. Downloaded on March 08,2026 at 02:37:53 UTC from IEEE Xplore. Restrictions apply.
+                                                                                                                                                                    our threshold to count a dip as a valley. The threshold allows
+    Global hegemony score
+                            10 0
+                                                                                                                                      
+                            10   -1                                                                             
+                                                                                                                                           
+                                                                                                                                                                   us to keep 85% of valleys in forged AS path, but to get rid
+                            10 -2                                                                                          
+                                                                                                                                                                    of 99%, 99%, and 96% of valleys in origin change, typo, and
+                            10 -3                                                                                                                                   prepend mistakes, respectively.
+                                                                        
+                            10 -4                                                                                                                                Similarity (Local hegemony) An AS that is closer to the
+                                 -5
+                            10                                                                                                                                      origin AS on the AS path has a higher local AS hegemony
+                                                 8             7        49         61             7        36             2             5             5             score in general, and a higher score means that the AS is more
+                                            60            87       35         35             62       44             82            00            19
+                                       29            28                                 26                      22            23            20                      important for the origin AS connectivity. If a hijacker creates
+                                                                                                                                                                    a false AS paths or violates BGP policies, these changes may
+Fig. 4. A VALLEY ON AN HIJACKED AS PATH OF GLOBAL AS HEGEMONY.                                                                                                      not be compliant with the previously computed local AS hege-
+T HIS EXAMPLE DRAWN FROM A DEMONSTRATION OF BGP INTERCEPTION
+AT D EFCON [38].                                                                                                                                                    mony scores. As an example, all paths to AS14618 (Amazon)
+                                                                                                                                                                    go through AS16509 (Amazon)2 and thus a local hegemony of
+    Global hegemony score
+
+
+
+
+                            10 0                                                                                                                                    AS16509 for AS14618 is 1.0. If a hijacker announces a fake
+                            10 -1                                                                                                                                   path between these two ASes, the announcement will cause a
+                            10 -2
+                            10 -3
+                                                                                                                                                                    signiﬁcant change on the local AS hegemony scores; thus the
+                            10 -4                                                                                                                                   instances can be identiﬁed with this feature.
+                            10 -5                                                                                                                                      We use cosine similarity of the previous and current local
+                            10 -6
+                            10 -7
+                                                                                                                                                                    hegemony as our feature. To get cosine similarity, we ﬁrst
+                                             49
+                                                     7
+                                                           17
+                                                                   4              11         46
+                                                                                                  8             80              90               91                 recalculate local hegemony scores of origin AS during the po-
+                                        37                                   55         52                 57              57               57
+                                                                                                      26             26              26
+                                                                                                                                                                    tential BGP hijacking event. Next, we retrieve local hegemony
+                              Fig. 5. E XAMPLE OF A SMALL VALLEY ON AN AS PATH.                                                                                     scores of the same origin AS before the event through the
+                                                                                                                                                                    IHR API [32]. Finally, we select the top three ASes in terms
+hegemony score is located between two common transit ASes                                                                                                           of local hegemony scores from each group and calculate the
+with higher scores, we deﬁne the dip between the two transit                                                                                                        cosine similarity between them. This feature isolates ASes that
+ASes as a valley. We consider the uncommon AS that causes                                                                                                           rarely or never appeared on paths before but now become the
+the valley as the potential hijacker. For example, as illustrated                                                                                                   major transit ASes for the origin AS.
+in Figure 4, a hijacker, AS26627, is located between two tiers
+                                                                                                                                                                    Edit distance: Preﬁxes and Origin ASN. We use Lev-
+1 ASes, CenturyLink(AS3561) and GTT(AS4436), and that is
+                                                                                                                                                                    enshtein’s edit-distance to identify typos made by network
+obviously suspicious [38].
+                                                                                                                                                                    operators in route origin AS and preﬁxes. Our edit distance
+   In practice, due to approximation and measurement errors                                                                                                         feature allows all possible edit operations, which are insertion,
+we observe many small valleys which may affect our classiﬁ-                                                                                                         deletion, substitution, and transposition. For typos in origin
+cation. As illustrated in Figure 5, Orange (AS5511) generates a                                                                                                     ASN, we calculate the edit distance between the potential
+small valley on the AS path; however, Orange is not a hijacker,                                                                                                     hijacker ASN and the victim ASN.
+and Orange, Cogent (AS174), and UFINET (AS52468) are                                                                                                                   While detecting typos in origin AS is simple, identifying
+tier-1 or tier-2 networks. Thus, the small valleys should not                                                                                                       preﬁx typos is relatively complicated. To detect preﬁx typos,
+be considered as an anomaly. To address this problem, we                                                                                                            we ﬁrst retrieve all preﬁxes of the potential hijacker’s AS
+deﬁne how deep a minimum should be to be counted as a                                                                                                               that are globally reported from BGP viewpoints before the
+valley. Then, we ignore the negligible small valleys that are                                                                                                       BGP hijacking event occurred. Then, we calculate the edit
+less than a certain threshold. We calculate the depth by taking                                                                                                     distance between the hijacked preﬁx and each reported preﬁx;
+an average of the rate of change between two local maxima,                                                                                                          and return the minimum edit distance among them. Intuitively,
+shown in Figure 4 for our ground truth data set. The calculated                                                                                                     operators are unlikely to make two mistakes in a single ASN
+depth for each category is shown in Figure 6. We use 0.95 as                                                                                                        or IP preﬁx; therefore, in both typo cases of origin AS and
+                                                                                                                                                                    preﬁxes, if the edit distance is 1, it is highly likely to be a
+                                      forged_as_path                          origin_change                          typo                       prepend
+                                                                                                                                                                    human error, not a hijacking.
+                1.0                                                                                                                                                 Prepending mistakes To identify human error in AS path
+                                                                                                                                                                    prepending (as shown in Figure 2), we use a simple method.
+                0.8
+                                                                                                                                                                    For this type of error, the new origin AS will appear to
+                0.6                                                                                                                                                 be a small number (corresponding to the operator’s desired
+  CDF
+
+
+
+
+                0.4                                                                                                                                                 amount of prepending) and the potential victim will appear
+                                                                                                                                                                    as a direct upstream to this AS. So, we check whether the
+                0.2
+                                                                                                                                                                    victim AS is a direct upstream of the new origin AS. Then,
+                0.0                                                                                                                                                 we assign the scaled probability against the number of origin
+                  0.1                 0.2            0.3           0.4     0.5   0.6    0.7                                0.8              0.9               1.0
+                                                                   Relative change in depths                                                                        ASN based on the prevalence of AS prepending observed on
+Fig. 6. CDF OF RELATIVE CHANGE IN DEPTHS ON EACH AS PATH IN OUR                                                                                                       2 https://ihr.iijlab.net/ihr/14618/asn/?af=4&date=2015-03-26&last=7&
+GROUND TRUTH DATA SET .                                                                                                                                             hegemonydate=2015-03-26+07\%3A15&hegemonyy=y
+
+
+
+
+                                                                                                                                                                                                                                             28
+                     Authorized licensed use limited to: University of New Brunswick. Downloaded on March 08,2026 at 02:37:53 UTC from IEEE Xplore. Restrictions apply.
+                                                                                                                           forged_as_path       origin_change            typo         prepend
+            1.0
+                                                                                                                          Threshold = 0.0                              Threshold = 0.95
+            0.8                                                                                                1.0                                    1.0
+
+
+
+
+                                                                                   Fraction of AS paths
+            0.6
+      CDF
+                                                                                                               0.8                                    0.8
+
+            0.4                                                                                                0.6                                    0.6
+
+            0.2                                                                                                0.4                                    0.4
+
+            0.0                                                                                                0.2                                    0.2
+               0        10       20        30         40         50
+               Number of how many times operators prepend their ASes                                           0.0                                    0.0
+                                                                                                                      0                    1+                      0                   1+
+                                                                                                                           Number of valleys                           Number of valleys
+
+ Fig. 7. CDF OF NUMBER OF AS PATH PREPENDING DURING 3.5 DAYS
+                                                                                Fig. 8.N UMBER OF                                   VALLEYS OF EACH AS PATH WITH DIFFERENT
+                                                                                THRESHOLDS.
+
+the Internet. Figure 7 shows the CDF of how many times ASes
+                                                                                                                           origin_change        prepend         forged_as_path           typo
+are prepended over a period of 3.5 days based on all AS paths
+
+
+
+
+                                                                                   Average number of valleys
+to all IP preﬁxes, which are globally advertised on the Internet                                               1.0
+
+from BGP viewpoints. We use these results to compute the                                                       0.8
+probability.                                                                                                   0.6
+
+Multiple-origin AS (MOAS). We use a binary digit to                                                            0.4
+
+indicate a MOAS conﬂict, which is one of the standard rules                                                    0.2
+
+to determine BGP hijacking. These events may be potentially                                                    0.0
+
+malicious hijacking or likely typos or errors as discussed in the                                                    0.0           0.2          0.4         0.6                 0.8       1.0
+                                                                                                                                                Local similarity
+prior sections, thus the presence of a MOAS violation cannot
+be the only feature to classify the events.                                     Fig. 9. C OMPARISON BETWEEN AVERAGE NUMBER OF VALLEYS AND
+                                                                                LOCAL SIMILARITY .
+                              V. R ESULTS
+A. Evaluation of features                                                       Figure 9. We ﬁnd that 88% of samples in forged AS path cases
+   We evaluate (1) whether our features are able to distinguish                 have less than 0.002 in local similarity. Our manual inspection
+the different types of events we have, and (2) the accuracy of                  of the 12% events, where local similarity is larger than 0.002,
+our classiﬁer.                                                                  reveals that in all these cases a hijacker announces an assigned
+Identifying forged AS path. As discussed earlier, because                       but unused preﬁx using a forged AS path, which means no
+small valleys on AS paths add noise to our features, we set                     MOAS conﬂict is reported. Besides, the hijacker places its
+a threshold to ﬁlter out negligible small valleys. In order to                  downstream customer as origin AS, so that local similarity is
+understand whether the threshold removes the noise effec-                       relatively larger than other cases.
+tively, we analyze the number of valleys for each AS path                       Identifying human error. We now evaluate our features
+with different thresholds. As illustrated in Figure 8, our results              that are designed to identify human error. As illustrated in
+show that, with a threshold 0.95, most valleys on AS paths in                   Figure 10, the prepending feature allows us to distinguish
+human error are eliminated while the valleys of forged AS                       between forged AS path cases and prepending cases, although
+path remain.                                                                    the local similarity values of these two types of events are
+   From Figure 9, we get concern on the utilization of the                      similarly distributed. This observation also supports the com-
+feature because less than 20% of AS paths are identiﬁed with                    plementarity of our features and the use of machine learning to
+signiﬁcant valleys. We compute the average number of valleys                    combine all features and improve their discrimination power.
+across all paths of each forged AS path event. As a result,                       Our results of the edit distance feature are illustrated in
+we ﬁnd that 53% of the events have an average number of                         Figure 11. The edit distance is derived from the minimum
+valleys higher than 0.05. This indicates that the majority of                   value of edit distances between a hijacked preﬁx and a set
+these events contain at least a path with a valley. Thus, we                    of preﬁx owned by a potential hijacker in our dataset. In
+can still utilize this feature to identify forged AS path events.
+                                                                                                                           origin_change        prepend         forged_as_path           typo
+   We now investigate forged AS path events that have a small
+average number of valleys to understand the reason. In our                                                     1.0
+analysis, we observe a few hijackers placing themselves on                                                     0.8
+                                                                                   Prepending
+
+
+
+
+a direct upstream position of a route origin AS. Because                                                       0.6
+a hijacker is too close to the route origin AS, the hijacker                                                   0.4
+does not create any valleys even when the hijacker has a                                                       0.2
+low global hegemony score. We discuss this problem in                                                          0.0
+details in Section VI. To mitigate this problem, we utilize                                                          0.0           0.2          0.4         0.6                 0.8       1.0
+local hegemony feature. Even if some hijackers yield small                                                                                      Local similarity
+
+valleys, they can be detected with local similarity, illustrated in
+                                                                                 Fig. 10. C OMPARISON PREPENDING FEATURE AND LOCAL SIMILARITY.
+
+
+
+
+29
+     Authorized licensed use limited to: University of New Brunswick. Downloaded on March 08,2026 at 02:37:53 UTC from IEEE Xplore. Restrictions apply.
+                           1.0                                                                           While investigating human error in AS path prepending
+                           0.8                                                                        in the BGPMon dataset, we ﬁnd some unexpected cases. In
+                           0.6
+                                                                                                      these cases, both a potential hijacker and an original ASN
+   CDF
+
+
+
+                                                                                                      are smaller than 10. We further investigate these cases with
+                           0.4
+                                                                                                      BGP measurements data over a period of two hours. We ﬁnd
+                           0.2
+                                                                                                      that there are not only one but also more potential hijackers
+                           0.0
+                                 0   1   2   3   4   5   6   7   8   9   10 11 12 13 14 15 16 17 18
+                                                                                                      of which ASNs are all smaller than 10. Besides, the direct
+                                                             Edit distance                            upstream AS of all the origin ASes is the same for all. For
+                                                                                                      example, all route origins, ASN2 and ASN6, have only one
+Fig. 11. E DIT DISTANCE BETWEEN A HIJACKED PREFIX AND A SET OF
+PREFIX OWNED BY A POTENTIAL HIJACKER .
+                                                                                                      direct upstream AS48420. We can infer that AS48420 tried
+                                                                                                      to do AS path prepending with several numbers at that time,
+                           10 -1
+   Global hegemony score
+
+
+
+
+                                                                                                      and BGPStream was confused with this and considered the
+                           10 -2                                                                      repeated error as a change of an origin AS.
+                           10 -3
+                                                                                                      D. Classiﬁcation of CAIDA’s BGPStream dataset
+                           10 -4
+                                                                                                         Our approach carries over to another measurement dataset,
+                           10 -5
+                                                                                                      CAIDA’s BGPStream. BGPStream allows us to observe all
+                           10 -6                                                                      anomalous BGP messages, and we focus on two events: multi-
+                                         23106 10429 12956 6453             4755 134269 101
+                                                                                                      ple origin-AS preﬁxes and newly appeared pair of neighboring
+                                     Fig. 12. E VENT OF FORGED AS PATH IN BGPM ON.                    ASes. We perform our ﬁltering on each event to avoid the
+Figure 11, we see that nearly 98% of the returned edit distance                                       cases that are likely trafﬁc engineering (e.g., by avoiding
+is larger than four.                                                                                  incidents involving sibling ASes.) and to focus only on pos-
+                                                                                                      sible hijacking events. After running our trained classiﬁer
+B. The accuracy of our classiﬁer                                                                      on events of multiple origin-AS preﬁxes, we ﬁnd 1%, 1%,
+   We use a random forest (RF) classiﬁer with all our features                                        14% of forged AS path, prepending mistakes, and typos,
+to classify BGP hijacking events. To evaluate the accuracy                                            respectively from MOAS. For the events of newly appeared
+of our classiﬁer, we run the RF classiﬁer on our ground                                               pair of neighboring ASes, we ﬁnd 20%, 30% of forged AS
+truth dataset. First, we remove one event from the dataset.                                           path and typo, respectively.
+Then, we train our RF classiﬁer with all other events and
+make the classiﬁer predict the label for the removed event.                                                                      VI. D ISCUSSION
+We repeat this process for all events and count how many
+                                                                                                      Limitation of features using AS hegemony. Our AS
+times the classiﬁer has correctly classiﬁed the removed event.
+                                                                                                      hegemony based features cannot classify forged AS paths if
+Using this experiment, we evaluate the accuracy of our RF
+                                                                                                      a hijacker is either tier-1 or tier-2 transit AS. These ASes
+classiﬁer to 95.71%. We also tried other classiﬁers, k-means
+                                                                                                      already have a relatively high global hegemony, so they are less
+and DBSCAN, and obtained the best results with RF. The
+                                                                                                      prone to create valleys on AS paths. Also, as many stub ASes
+accuracy of these classiﬁers is 54.5% and 61.9%, respectively.
+                                                                                                      generally depend on tier-1 or tier-2 transit ASes to transmit
+As some of our features are discrete, thus random forest (the
+                                                                                                      their trafﬁc, a route origin AS of an AS path is likely to have a
+use of decision tree) is the most appropriate.
+                                                                                                      high dependency on those ASes. It means that we also might
+C. Classiﬁcation of BGPMon dataset                                                                    not ﬁnd any anomalies on the AS path with local hegemony
+   We train the RF classiﬁer with our ground truth dataset,                                           if the tier-1 or -2 networks are the upstream provider of the
+then predict classes of BGP hijacking events reported by                                              origin AS. However, in our ground truth, the real hijackers
+BGPMon [33]. Figure 13 shows the result of our classiﬁer                                              had relatively small hegemony, 0.00125 global hegemony on
+for a total of 2418 hijacking alarms over ten months. We ﬁnd                                          average. This is relatively smaller than 0.134 (Level 3) and
+5%, 4%, 2% of forged AS path, typo, and prepend mistakes,                                             0.006 (UCSD).
+respectively.                                                                                         Trial to fool edit distance. A hijacker may tailor an attack to
+   We further investigate and verify whether each event is clas-                                      make it similar to an operators mistake and fool our classiﬁer.
+siﬁed correctly. As an example, in one of the forged AS path                                          Due to the limited availability of IP address space, however, a
+events, AS101 is pointed out as a hijacker by BGPMon against                                          hijacker has a limited number of choices to bypass and fool our
+a preﬁx 103.100.12.0/24 owned by AS136650. However, we                                                detector. To explain this, we note that our edit distance features
+ﬁnd that there is a forged AS path between a hijacker AS101                                           allow all possible edit operations, which are insertion, deletion,
+and AS134269, illustrated in 12. In this case, the valley created                                     substitution, and transposition. A hijacker has to use only one
+by the hijacker is clearly visible; furthermore the two networks                                      operation among the set to avoid our detection. Computing
+are registered in two distance countries. AS101 stands for the                                        the exact number of such possible edits is difﬁcult. Thus, we
+University of Washington in USA and AS134269 is registered                                            check the number of the maximum possibilities of hijacking
+in India.                                                                                             attacks where the number of edits is equal to 1. In other words,
+
+
+
+                                                                                                                                                                                30
+                           Authorized licensed use limited to: University of New Brunswick. Downloaded on March 08,2026 at 02:37:53 UTC from IEEE Xplore. Restrictions apply.
+            10 3
+                                                                                                                                                       hijacking alarm
+                                                                                                                                                       forged_as_path
+            10 2                                                                                                                                       typo
+Frequency
+
+
+
+
+                                                                                                                                                       prepend
+
+
+            10 1
+
+
+
+            10 0
+                            Jun 2018        Jul 2018       Aug 2018         Sep 2018        Oct 2018        Nov 2018        Dec 2018        Jan 2019         Feb 2019
+
+
+                                                         Fig. 13. C LASSIFICATION RESULTS OF BGPM ON DATASET.
+
+
+
+we look at the number of possibilities where the hijack can                               Classiﬁcation of Internet Anomalies. Some works try to
+pretend to be a case of human error in the worst case scenario.                           classify the different types of BGP anomalies observed in
+   Assume that we have an IP address, 1.1.1.1/32. For inser-                              routing. The work [23] surveys the types of possible BGP
+tion, a hijacker can insert any one digit from 0-9 before and                             anomalies (e.g. direct and indirect anomalies, link failure)
+after ”1” in the ﬁrst octet. The possibilities for each octet                             and enumerates detection techniques with different approaches
+are 20 so that the total possibilities of insertion is 80. For                            (e.g. machine learning, statistical pattern recognition). Mari-
+deletion, because there are three numbers for each octet, the                             jana et al. [39] use standard statistical classiﬁcation techniques
+total possibilities of deletion are 12. For substitution, a hijacker                      to identify the types of BGP attacks, but do not consider
+can insert [1,2], [0-9], [0-5], respectively to each octet. Thus,                         human error. Some works [27]–[29] use machine learning
+the total possibility of substitution is 60. Transposition has                            techniques (e.g. SVM, HMMs) to classify BGP anomalies.
+the smallest number of possibilities, 8, because each octet is                            However, these studies all focus on the classiﬁcation between
+available for only two transposition operations.                                          work attacks, link failure, and misconﬁguration, and do not
+   Note that the total number of IP addresses is equal to                                 consider BGP hijacking. The study closest to our work is
+232 . We consider the total number of possible edits and the                              I-Seismograph [40]. It ﬁnds major changes in the Internet
+number of possible cases with edit distance equal to 1. We                                routing patterns and tries to identify the root cause behind
+ﬁnd from the previous case that in the worst case scenario,                               it. However, unlike our work, it does not check if an error is
+the probability of fooling edit distance is negligibly small,                             by a hijacker AS or an operators mistake.
+which is equal to 3.73 × 10−8 .                                                                                VIII. C ONCLUSION
+                                                                                             In this work, we leveraged AS hegemony and heuristic ap-
+                                VII. R ELATED W ORK                                       proaches to classify BGP hijack events into typos, prepending
+                                                                                          mistakes, origin changes, and forged AS paths. We improved
+Detection of BGP Hijacking. To mitigate BGP hijacking, a                                  the accuracy of our features by removing noise (e.g., small
+number of detection techniques have been proposed [13]–[26].                              valleys) and using empirical measurements. In addition, our
+Existing works detect BGP hijacking by searching for a MOAS                               results show that even though each feature seems to be
+violation or a BGP policy violation, or by tracking whether any                           independent with each other, they can be leveraged together
+new pairs of neighboring ASes suddenly appear. Argus [13]                                 to enhance the accuracy of classiﬁcation. Moreover, we use
+and Hu et al. [21] measure the number of hijacking attacks                                a random forest (RF) classiﬁer with our ﬁve features and
+by correlating multiple sources of information from the data                              show that our classiﬁer has 95.71% accuracy. We trained our
+and control planes of the network and ﬁnding inconsistencies                              classiﬁer with our ground truth, and then used it to characterize
+among them or checking reachability. Tahara et al. [22] use                               candidate BGP hijacking events generated by BGPMon and
+ping tests to detect similar attacks. Our work builds on these                            BGPstream. With BGPMon, the results show that we classify
+studies to detect BGP hijacks, but also take into account the                             4%, 1%, and 2% of alarms as typos, prepend mistakes, and
+possibility of human error.                                                               BGP hijacking with a forged AS path, respectively. With
+   A number of other studies also attempt to detect in real-time                          BGPStream, for multiple origin-AS preﬁxes events, we ﬁnd
+to protect the system from such attacks. PGBGP [17] designs                               that 1%, 1%, 14% of events are forged AS path, prepending
+heuristics to detect BGP hijacking and propose slowing down                               mistakes, and typos, respectively. For events of newly appeared
+the propagation of such routes to allow human operators to                                pair of neighboring ASes, we ﬁnd that 20%, 30% of events
+respond to such attacks. Deshpande et al. [15] and Theodoridis                            have forged AS path and typo, respectively. Our results show
+et al. [16] use statistical analysis to identify anomalies and                            that typos and prepending mistakes account for more number
+instabilities and thus detect BGP hijacks in real-time. Our                               of events than origin changes and forged AS path.
+work uses similar statistical techniques to detect BGP hijacks.                              For future work, we plan to utilize AS hegemony to localize
+However, unlike our work, these studies do not take into                                  a hijacker on an AS path. Localizing is possible by returning
+account the possibility of operator errors.                                               AS that is responsible for the valley on a path. In addition,
+
+
+
+31
+               Authorized licensed use limited to: University of New Brunswick. Downloaded on March 08,2026 at 02:37:53 UTC from IEEE Xplore. Restrictions apply.
+we are aware of the cases where we cannot detect a forged                         [15] S. Deshpande, M. Thottan, T. K. Ho, and B. Sikdar, “An online mecha-
+AS path with the number of valleys so we plan to look at                               nism for BGP instability detection and analysis,” IEEE transactions on
+                                                                                       Computers, vol. 58, no. 11, pp. 1470–1484, 2009.
+different statistical techniques to mitigate such cases. Finally,                 [16] G. Theodoridis, O. Tsigkas, and D. Tzovaras, “A novel unsupervised
+in this paper, we focus on only BGP hijack attacks, but we                             method for securing BGP against routing hijacks,” in Computer and
+plan to extend our datasets to include the data of all anomalies                       Information Sciences III. Springer, 2013, pp. 21–29.
+                                                                                  [17] J. Karlin, S. Forrest, and J. Rexford, “Pretty good BGP: Improving BGP
+and utilize our features to characterize the anomalies. Also,                          by cautiously adopting routes,” in ICNP, 2006.
+we plan to increase the scope of human mistakes to cover                          [18] A. Haeberlen, I. C. Avramopoulos, J. Rexford, and P. Druschel, “NetRe-
+                                                                                       view: Detecting when interdomain routing goes wrong.” in NSDI, vol.
+conﬁguration errors in routing policies.                                               2009, 2009.
+                    ACKNOWLEDGEMENTS                                              [19] M. Lad, D. Massey, D. Pei, Y. Wu, B. Zhang, and L. Zhang, “PHAS:
+                                                                                       A preﬁx hijack alert system.” in USENIX Security symposium, 2006.
+   We would like to thank the anonymous reviewers for                             [20] C. Zheng, L. Ji, D. Pei, J. Wang, and P. Francis, “A light-weight
+their feedback. This work has been partially funded by the                             distributed scheme for detecting ip preﬁx hijacks in real-time,” in
+                                                                                       SIGCOMM, 2007.
+IIJ-II summer internship program. We acknowledge funding                          [21] X. Hu and Z. M. Mao, “Accurate real-time identiﬁcation of ip preﬁx
+support from the NSF Grants CNS 1740895, CNS 1700657,                                  hijacking,” in Symposium on Security and Privacy (SP’07), 2007.
+CNS 1651784, CNS 1350720, CNS 1423659, CNS 1705024,                               [22] M. Tahara, N. Tateishi, T. Oimatsu, and S. Majima, “A method to detect
+                                                                                       preﬁx hijacking by using ping tests,” in Asia-Paciﬁc Network Operations
+OAC 1848641. This material is based on research sponsored                              and Management Symposium, 2008.
+by Air Force Research Laboratory under agreement number                           [23] B. Al-Musawi, P. Branch, and G. Armitage, “BGP anomaly detection
+FA8750-18-2-0049. We also acknowledge partial support by                               techniques: A survey,” IEEE Communications Surveys & Tutorials,
+                                                                                       vol. 19, no. 1, pp. 377–396, 2017.
+the MSIT (Ministry of Science and ICT), Korea, under the                          [24] I. O. de Urbina Cazenave, E. Köşlük, and M. C. Ganiz, “An anomaly
+”ICT Consilience Creative program” (IITP-2019-H8601-15-                                detection framework for BGP,” in 2011 International Symposium on
+1011) supervised by the IITP (Institute for Information & com-                         Innovations in Intelligent Systems and Applications. IEEE, 2011, pp.
+                                                                                       107–111.
+munications Technology Planning & Evaluation). The U.S.                           [25] P. Sermpezis, V. Kotronis, P. Gigis, X. Dimitropoulos, D. Cicalese,
+Government is authorized to reproduce and distribute reprints                          A. King, and A. Dainotti, “ARTEMIS: Neutralizing BGP Hijacking
+for Governmental purposes notwithstanding any copyright                                within a Minute,” IEEE/ACM Transactions on Networking, vol. 26, no. 6,
+                                                                                       pp. 2471–2486, Dec 2018.
+notation thereon. The views and conclusions in this paper are                     [26] Y.-J. Chi, R. Oliveira, and L. Zhang, “Cyclops: the AS-level connectivity
+those of the authors and do not necessarily reﬂect the opinions                        observatory,” in SIGCOMM, 2008.
+of a sponsor, Air Force Research Laboratory, the United States,                   [27] N. M. Al-Rousan and L. Trajković, “Machine learning models for
+                                                                                       classiﬁcation of BGP anomalies,” in 2012 IEEE 13th International
+or the Republic of Korea Government.                                                   Conference on High Performance Switching and Routing, 2012.
+                                                                                  [28] J. Li, D. Dou, Z. Wu, S. Kim, and V. Agarwal, “An internet routing
+                              R EFERENCES                                              forensics framework for discovering rules of abnormal BGP events,”
+ [1] Y. Rekhter, T. Li, and S. Hares, “RFC 4271: A border gateway protocol             2005.
+     4 (BGP-4),” Tech. Rep., 2006.                                                [29] A. Lutu, M. Bagnulo, J. Cid-Sueiro, and O. Maennel, “Separating wheat
+ [2] S. Goldberg, M. Schapira, P. Hummon, and J. Rexford, “How secure                  from chaff: Winnowing unintended preﬁxes using machine learning,” in
+     are secure interdomain routing protocols,” in SIGCOMM, 2010.                      INFOCOM, 2014.
+ [3] H. Ballani, P. Francis, and X. Zhang, “A study of preﬁx hijacking and        [30] Y. Xiang, Z. Wang, X. Yin, and J. Wu, “Argus: An accurate and agile
+     interception in the internet,” in SIGCOMM, 2007.                                  system to detecting ip preﬁx hijacking,” in ICNP, 2011.
+ [4] S. Misel, “Wow, AS7007! 1997.”                                               [31] R. Fontugne, A. Shah, and E. Aben, “The thin bridges of AS connec-
+ [5] A.      Robachevsky,       “Routing     security         getting   better,        tivity: Measuring dependency using AS hegemony,” in PAM, 2018.
+     but      no    reason     to    rest!”     https://www.manrs.org/2019/02/    [32] IIJ Research Lab, “Internet Health Report,” https://ihr.iijlab.net/, 2019,
+     routing-security-getting-better-but-no-reason-to-rest/, 2019, online;             online; accessed January 2019.
+     accessed February 2019.                                                      [33] BGPMon, “BGPStream,” https://bgpstream.com/about/, 2019, online;
+ [6] O. Nordström and C. Dovrolis, “Beware of BGP attacks,” in SIGCOMM,               accessed January 2019.
+     2004.                                                                        [34] CAIDA, “CAIDA BGP Stream,” https://bgpstream.caida.org/, 2019, on-
+ [7] A. Ramachandran and N. Feamster, “Understanding the network-level                 line; accessed January 2019.
+     behavior of spammers,” in SIGCOMM, 2006.                                     [35] D. Madory, “BackConnects suspicious BGP hijacks,” https://dyn.com/
+ [8] P.-A. Vervier, O. Thonnard, and M. Dacier, “Mind your blocks: On the              blog/backconnects-suspicious-bgp-hijacks/, 2016, online; accessed Jan-
+     stealthiness of malicious BGP hijacks.” in NDSS, 2015.                            uary 2019.
+ [9] M. Lepinski and K. Sriram, “Bgpsec protocol speciﬁcation,” Tech. Rep.,       [36] Dyn, “Dyn blog,” https://dyn.com/blog/category/research/, 2019, online;
+     2017.                                                                             accessed January 2019.
+[10] R. Bush and R. Austein, “The resource public key infrastructure (RPKI)       [37] C. Orsini, A. King, D. Giordano, V. Giotsas, and A. Dainotti, “BGP-
+     to router protocol,” Tech. Rep., 2013.                                            Stream: A software framework for live and historical BGP data analysis,”
+[11] IETF, “Secure interdomain routing (sidr) working group,” http://                  in IMC. ACM, 2016.
+     datatracker.ietf.org/wg/sidr/charter/, online; accessed February 2019.       [38] E. Zmijewski, “To catch a thief,” https://dyn.com/blog/
+[12] P. Gill, M. Schapira, and S. Goldberg, “Let the market drive deployment:          stealing-the-internet-back-1/, 2009, online; accessed January 2019.
+     A strategy for transitioning to BGP security,” in SIGCOMM, 2011.             [39] M. Ćosović, S. Obradovió, and L. Trajković, “Classifying anomalous
+[13] X. Shi, Y. Xiang, Z. Wang, X. Yin, and J. Wu, “Detecting preﬁx                    events in bgp datasets,” in CCECE, 2016, pp. 1–4.
+     hijackings in the internet with argus,” in IMC, 2012.                        [40] M. Zhang, J. Li, and S. Brooks, “I-seismograph: Observing, measur-
+[14] Z. Zhang, Y. Zhang, Y. C. Hu, Z. M. Mao, and R. Bush, “iSPY: detecting            ing, and analyzing internet earthquakes,” IEEE/ACM Transactions on
+     IP preﬁx hijacking on my own,” in SIGCOMM, 2008.                                  Networking (TON), vol. 25, no. 6, pp. 3411–3426, 2017.
+
+
+
+
+                                                                                                                                                             32
+      Authorized licensed use limited to: University of New Brunswick. Downloaded on March 08,2026 at 02:37:53 UTC from IEEE Xplore. Restrictions apply.
+

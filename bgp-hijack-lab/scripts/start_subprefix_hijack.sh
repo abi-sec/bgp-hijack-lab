@@ -1,4 +1,6 @@
 #!/bin/bash
+set -euo pipefail
+
 LAB="bgp-hijack"; R4="clab-${LAB}-r4"; R1="clab-${LAB}-r1"
 BOLD="\033[1m"; RED="\033[31m"; YELLOW="\033[33m"; GREEN="\033[32m"; RESET="\033[0m"
 
@@ -8,6 +10,12 @@ echo -e "${BOLD}================================================${RESET}"
 echo -e "AS400 announces ${RED}13.0.0.0/25${RESET} — more specific than victim's /24"
 echo -e "BGP longest prefix match means /25 wins unconditionally"
 echo ""
+
+if ! docker inspect "$R4" >/dev/null 2>&1 || ! docker inspect "$R1" >/dev/null 2>&1; then
+  echo -e "${RED}[FAILED]${RESET} Lab containers not running (missing $R1 or $R4)."
+  echo -e "Deploy first: ${YELLOW}sudo containerlab deploy -t topology.yaml${RESET}"
+  exit 1
+fi
 
 # Remove exact hijack if running
 docker exec "$R4" vtysh \
@@ -53,5 +61,17 @@ echo ""
 echo -e "${RED}Key: /25 and /24 coexist in table.${RESET}"
 echo -e "${RED}Traffic to 13.0.0.0-13.0.0.127   → ATTACKER (longer prefix wins)${RESET}"
 echo -e "${RED}Traffic to 13.0.0.128-13.0.0.255 → victim (unaffected)${RESET}"
-echo -e "${GREEN}Run scripts/stop_attack.sh to restore${RESET}"
+echo ""
+echo -e "${YELLOW}--- R1 Forwarding decision for attacker /25 ---${RESET}"
+docker exec "$R1" vtysh -c "show ip route 13.0.0.0/25" || true
+
+if docker exec "$R1" vtysh -c "show ip route 13.0.0.0/25" 2>/dev/null | grep -q "10.14.0.2"; then
+  echo -e "${GREEN}[SUCCESS]${RESET} Subprefix hijack succeeded (R1 /25 next-hop is attacker 10.14.0.2)."
+  echo -e "${GREEN}Run scripts/stop_attack.sh to restore${RESET}"
+  exit 0
+else
+  echo -e "${RED}[FAILED]${RESET} Subprefix hijack did NOT take over on R1."
+  echo -e "${YELLOW}Check:${RESET} docker exec $R1 vtysh -c 'show ip route 13.0.0.0/25'"
+  exit 1
+fi
 echo -e "${BOLD}================================================${RESET}"

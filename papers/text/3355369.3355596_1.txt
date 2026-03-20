@@ -1,0 +1,1167 @@
+                                                                                                                         PDF Download
+                                                                                                                         3355369.3355596.pdf
+                                                                                                                         08 March 2026
+                                                                                                                         Total Citations: 54
+                                                                                                                         Total Downloads: 2793
+    .
+    .
+        Latest updates: hps://dl.acm.org/doi/10.1145/3355369.3355596
+
+
+
+
+                                                                                                                         .
+                                                                                                                         .
+                                                                                                              Published: 21 October 2019
+        .
+        .
+                                                                                                              .
+    RESEARCH-ARTICLE
+
+
+
+
+                                                                                                              .
+                                                                                                              Citation in BibTeX format
+    RPKI is Coming of Age: A Longitudinal Study of RPKI Deployment and
+
+
+
+
+                                                                                                              .
+                                                                                                              .
+                                                                                                              IMC '19: ACM Internet Measurement
+    Invalid Route Origins                                                                                     Conference
+                                                                                                              October 21 - 23, 2019
+    TAEJOONG CHUNG, Rochester Institute of Technology, Rochester, NY, United States                           Amsterdam, Netherlands
+
+
+
+
+                                                                                                              .
+    .
+                                                                                                              .
+    EMILE ABEN                                                                                                Conference Sponsors:
+                                                                                                              SIGCOMM
+    .
+    TIM BRUIJNZEELS                                                                                           SIGMETRICS
+    .
+    BALAKRISHNAN CHANDRASEKARAN, Max Planck Institute for Informatics, Saarbrucken,
+    Saarland, Germany
+    .
+    DAVID CHOFFNES
+    .
+    DAVE LEVIN, University of Maryland, College Park, College Park, MD, United States
+    .
+    View all
+    .
+    .
+    Open Access Support provided by:
+    .
+    University of Twente
+    .
+    Akamai Technologies
+    .
+    University of Maryland, College Park
+    .
+    Max Planck Institute for Informatics
+    .
+    Rochester Institute of Technology
+    .
+    Cloudflare, Inc.
+    .
+                                                                          IMC '19: Proceedings of the Internet Measurement Conference (October 2019)
+                                                                                                                hps://doi.org/10.1145/3355369.3355596
+                                                                                                                                   ISBN: 9781450369480
+.
+                                               RPKI is Coming of Age
+                        A Longitudinal Study of RPKI Deployment and Invalid Route Origins
+
+              Taejoong Chung                                     Emile Aben                                       Tim Bruijnzeels
+      Rochester Institute of Technology                             RIPE NCC                                           NLNetLabs
+
+    Balakrishnan Chandrasekaran                                David Choffnes                                        Dave Levin
+    Max Planck Institute for Informatics                   Northeastern University                             University of Maryland
+
+              Bruce M. Maggs                                    Alan Mislove                               Roland van Rijswijk-Deij
+             Duke University and                           Northeastern University                            University of Twente and
+             Akamai Technologies                                                                                    NLNetLabs
+
+                                           John Rula                                       Nick Sullivan
+                                     Akamai Technologies                                      Cloudflare
+
+ABSTRACT                                                                        1    INTRODUCTION
+Despite its critical role in Internet connectivity, the Border Gateway          The Border Gateway Protocol (BGP) is the mechanism that allows
+Protocol (BGP) remains highly vulnerable to attacks such as prefix              routers to construct routing tables across the Internet. Unfortu-
+hijacking, where an Autonomous System (AS) announces routes                     nately, the original BGP protocol lacked many security features
+for IP space it does not control. To address this issue, the Resource           (e.g., authorization of IP prefix announcements), making BGP vul-
+Public Key Infrastructure (RPKI) was developed starting in 2008,                nerable to attacks such as prefix hijacking [3, 5, 7, 14] and route
+with deployment beginning in 2011. This paper performs the first                leaks [5]. To defend against these threats, the Resource Public Key
+comprehensive, longitudinal study of the deployment, coverage,                  Infrastructure (RPKI) was developed in April 2008 as part of the
+and quality of RPKI.                                                            IETF in the SIDR Working Group [54]. Beta deployments followed
+   We use a unique dataset containing all RPKI Route Origin Autho-              in the years after, until all Regional Internet Registries (RIRs) started
+rizations (ROAs) from the moment RPKI was first deployed, more                  production deployment of RPKI in January 2011.
+than 8 years ago. We combine this dataset with BGP announce-                        At its core, RPKI is a hierarchical Public Key Infrastructure (PKI)
+ments from more than 3,300 BGP collectors worldwide. Our analysis               that binds Internet Number Resources (INRs) such as Autonomous
+shows the after a gradual start, RPKI has seen a rapid increase in              System Numbers (ASNs) and IP addresses to public keys via cer-
+adoption over the past two years. We also show that although                    tificates. The corresponding private keys can be used by certificate
+misconfigurations were rampant when RPKI was first deployed                     holders to make attestations about these INRs—most importantly,
+(causing many announcements to appear as invalid) they are quite                Route Origin Authorization (ROA) objects. ROAs allow a certificate
+rare today. We develop a taxonomy of invalid RPKI announcements,                holder to authorize an ASN to announce certain IP prefixes, and are
+then quantify their prevalence. We further identify suspicious an-              signed using the private key of a certificate covering the IP space.
+nouncements indicative of prefix hijacking and present case studies                 Each of the five RIRs operate their own RPKI trust anchor (equiv-
+of likely hijacks.                                                              alent to a root certificate in other PKIs), the private key of which is
+   Overall, we conclude that while misconfigurations still do oc-               used to sign such certificates. The RIRs also offer hosted services
+cur, RPKI is “ready for the big screen,” and routing security can               to their members, enabling them to obtain RPKI certificates and
+be increased by dropping invalid announcements. To foster repro-                generate ROAs.
+ducibility and further studies, we release all RPKI data and the tools              RPKI objects including certificates, ROAs, and supporting struc-
+we used to analyze it into the public domain.                                   tures such as manifests and certificate revocation lists (CRLs) are
+                                                                                published in so-called RPKI repositories. RPKI validation software—
+Permission to make digital or hard copies of all or part of this                called Relying Party (RP) software—retrieves objects from these
+work for personal or classroom use is granted without fee provided              repositories and performs cryptographic validation of the content,
+that copies are not made or distributed for profit or commercial                ultimately producing a set of valid ROAs. A validating router can
+advantage and that copies bear this notice and the full citation
+                                                                                then use this set to verify incoming BGP announcements. If the
+on the first page. Copyrights for components of this work owned
+by others than ACM must be honored. Abstracting with credit is                  router finds a BGP announcement to be in conflict with the set of
+permitted. To copy otherwise, or republish, to post on servers or to            valid ROAs, it should reject the announcement as (by definition)
+redistribute to lists, requires prior specific permission and/or a fee.         the origin AS is not authorized to announce the IP prefix(es).
+Request permissions from permissions@acm.org.                                       While RPKI sounds straightforward, in practice it can be complex,
+IMC ’19, October 21–23, 2019, Amsterdam, Netherlands                            creating many opportunities for mistakes. For example, an AS may
+© 2019 Association for Computing Machinery.                                     sub-allocate an IP prefix to a customer AS without updating its
+ACM ISBN 978-1-4503-6948-0/19/10. . . $15.00                                    ROAs or mistakenly include the wrong range of IP prefixes in a
+https://doi.org/10.1145/3355369.3355596
+
+
+
+
+                                                                          406
+ROA, thus accidentally making its announcements invalid. If such
+mistakes are pervasive, a validating router cannot rely on RPKI                       AFRINIC   LACNIC    APNIC     ARIN     RIPE NCC Regional Internet Registries
+
+validation to drop invalid routes, as doing so might have too great
+of an impact on valid traffic. Such mistakes would weaken the basis
+                                                                                                 NIR                                    National Internet Registries
+of RPKI and may hamper adoption of RPKI.
+    While past studies [25, 43, 58] have looked at snapshots in time
+of various aspects of the RPKI ecosystem, little is known about how                                                                     Members
+RPKI has developed since its inception in 2011. This situation makes
+it hard to draw conclusions about the quality of RPKI data and the
+viability of actually relying on RPKI to filter invalid announcements.                                                                  Customers
+
+In this study, we aim to change this situation by taking a longer view.                                                                    ROAs         Certificates
+Using a unique dataset covering all RPKI data published by the RIRs
+on a daily basis since its early origins in 2011 (even before its full                 Figure 1: Organization of the RPKI repositories
+standardization), we study over eight years of RPKI data, combined
+with publicly available data on BGP announcements covering the
+same period. We augment this dataset with more detailed BGP data                2.1    BGP
+from a large CDN from 2017 until the present day to understand
+                                                                                Interdomain routers use the Border Gateway Protocol (BGP) to
+the impact of RPKI validation on an operator. With this dataset,
+                                                                                establish routing tables. In brief, BGP speakers announce paths
+we present a comprehensive study of how the RPKI ecosystem has
+                                                                                to destination IP prefixes through a series of ASes. Simplifying
+evolved and what fraction of BGP announcements today are actually
+                                                                                somewhat, an example BGP announcement looks like the following:
+verifiable using RPKI. We look at common misconfigurations of
+RPKI, and how these affect the validity of BGP announcements.                         129.21.0.0/16, AS PATH: AS3549 AS3356 AS4385
+We also examine whether RPKI meets its goal of preventing the                   This announcement advertises a path to the IP prefix
+acceptance of intentionally malicious announcements. Our main                   129.21.0.0/16 through the three ASes listed. Routers pro-
+findings and contributions are as follows:                                      cess announcements and withdrawals from peers in order to
+• We perform the first, detailed day-to-day longitudinal study of               maintain routing tables, and generally pick the most specific prefix
+  RPKI in the context of real-world routing data;                               in their table when choosing how to forward a packet.
+                                                                                    The original BGP protocol lacked many security features, open-
+• We study the pervasiveness of common misconfigurations and                    ing the door to a number of attacks. First, a malicious AS could make
+  how these develop over time;                                                  an announcement for an IP prefix that it did not own, which would
+• We attempt to isolate intentional malicious announcements by                  cause some of the traffic for that IP prefix to be sent to it; this attack
+  filtering out common misconfigurations;                                       is called prefix hijacking. Second, a malicious AS could make a more
+                                                                                specific announcement than the originator’s prefix for an IP prefix
+• We show that, today, RPKI is ready for “the big screen” and can
+                                                                                it did not own (e.g., announcing 129.21.128.0/17 in the example
+  safely be used to filter invalid announcements.
+                                                                                above). Because routers will pick the most specific prefix when
+  To foster reproducibility and further research into the RPKI                  forwarding traffic, all traffic for that IP prefix will be forwarded to
+ecosystem, we publicly release all of our analysis code and data                the malicious AS; this attack is called sub-prefix hijacking. These
+(where possible1 ) to the research community at                                 attacks have occurred with frequency in practice, with significant
+                    https://rpki-study.github.io                                effects for the attacked IP prefix holders [3, 5, 7, 14].
+
+   The remainder of this paper is organized as follows. Section 2 pro-          2.2    RPKI Objects
+vides background on RPKI objects and the Route Origin Validation
+                                                                                RPKI [33] is a public key infrastructure designed as an out-of-band
+process as well as the related work. Section 3 describes our dataset
+                                                                                system to help prevent BGP address prefix (and sub-prefix) hijack-
+for this study, and Section 4 shows how RPKI has been deployed
+                                                                                ing attacks. Briefly, RPKI employs cryptographic signatures to limit
+since its launch. Sections 5 and 6 examine why and how some
+                                                                                the set of entities who can announce IP prefixes. There are multiple
+BGP announcements are RPKI invalid. Sections 7 and 8 provide a
+                                                                                types of supporting objects in the core RPKI system; the two we
+concluding discussion and future work.
+                                                                                use in this paper are:
+
+2   BACKGROUND AND RELATED WORK                                                    (1) a CA certificate, which binds a set of Internet Number Re-
+                                                                                       sources (INRs) such as Autonomous System Numbers (ASNs)
+In this section, we provide background information on RPKI and                         and IP prefixes to a public key;
+give an overview of related work.
+                                                                                   (2) a Route Origin Authorization (ROA), which authorizes an
+                                                                                       AS to announce certain IP prefixes and is signed by a CA
+    1 Our Akamai dataset is provided under agreement with Akamai;                      certificate.
+we are not permitted to release this data. However, we provide links               These objects are all published in public RPKI repositories oper-
+for the other two sources and also provide a link for RPKI objects              ated by the Regional Internet Registries (RIRs). Figure 1 shows how
+where other researchers can obtain access themselves.                           these repositories are organised. Each RIR has a separate hierarchy
+
+
+
+
+                                                                          407
+starting at its trust anchor and certificate [28, 33]. These trust an-            When such a router receives a BGP announcement, it attempts to
+chors are each owned by an RIR and are akin to root certificates               validate the announcement using the set of VRPs [37]. In order to
+in other PKIs. The trust anchors are used to sign CA certificates              do so, it determines first if the announced IP prefix is covered by any
+for each RIR’s members so that the members can make different                  VRP; if so, it then determines whether the announcement matches
+kinds of assertions. In some regions (currently the LACNIC and                 the VRP. In more detail, an IP prefix in a BGP announcement is
+APNIC regions) there is sometimes an intermediate level at a Na-               said to be covered by a VRP when the IP prefix address and the VRP
+tional Internet Registry (NIR). Equally, RIR or NIR members can                IP prefix address are identical for all bits specified by the VRP IP
+also delegate resources to their customers (as shown in Figure 1).             prefix length. A BGP announcement is considered to match a VRP
+   The most important assertion a resource holder can make is                  when (1) the VRP IP prefix covers the announcement’s IP prefix,
+a Route Origin Authorization (ROA), which authorizes an AS to                  (2) the VRP AS matches the announcement’s AS, and (3) the length
+advertise IP prefixes through BGP. An ROA is a signed attestation              of the announcement’s prefix is no greater than the MaxLength in
+that the holder of a set of IP prefixes has authorized a single AS to          the VRP.
+originate routes for those prefixes.2 Thus, it contains a single ASN              Hence, a BGP announcement received by a validating router is
+and (multiple) IP prefixes with their prefix lengths, which the AS is          in one of the three possible RPKI validity states:
+authorized to announce.3                                                       • Valid: the BGP announcement is matched by a VRP,
+                                                                               • Invalid: the IP prefix in the BGP announcement is covered by a
+2.3    Max-Length                                                                VRP, but no VRP matches the announcement,4
+An AS may wish to de-aggregate an allocated IP prefix into mul-                • Unknown: the IP prefix in the BGP announcement is not covered
+tiple so-called sub-prefixes. For example, AS 4385 may wish to                    by any VRP.
+de-aggregate its prefix 129.21.0.0/16 into multiple /20 blocks                 For example, consider VRPs published by Rochester Institute of
+(e.g., 129.21.0.0/20) for their own purposes (fine-grained traffic             Technology (AS4385). AS 4385 can announce one of its IP prefixes
+control, assignment to customers, etc). In the protocol described              by sending a BGP announcement to its neighbors:
+thus far, the AS would have to create and sign a ROA containing
+                                                                                               129.21.0.0/16, AS PATH: AS4385
+each of the sub-prefixes:
+                                                                               The neighbors can verify the origin of the BGP announcement by
+                    129.21.0.0/20, AS 4385                                     looking up VRPs, and will find that there is a VRP which matches.
+                              …                                                Thus, this announcement is considered valid.5 However the follow-
+                   129.21.240.0/20, AS 4385                                    ing BGP announcement is considered invalid as it is covered by at
+Alternatively, the AS can use the MaxLength attribute [34] in the              least one VRP (for 129.21.0.0/16), but not matched by any VRP:
+ROA, which specifies the longest prefix length for the authorized                             129.21.240.0/24, AS PATH: AS4385
+IP prefix that the AS may announce. Continuing with the example,
+                                                                               Finally, the following BGP announcement is considered unknown
+the AS could instead sign a single ROA:
+                                                                               as there is no VRP that covers the announced prefix:
+               ROA: 129.21.0.0/16-20, AS 4385                                                 129.22.128.0/17, AS PATH: AS4385
+that would authorize AS 4385 to announce any of the sub-prefixes               Also, routers do not need to do any cryptographic verification to per-
+of 129.21.0.0/16 in CIDR blocks of length between /16 and /20.                 form this analysis, as it done purely on the basis of VRPs obtained
+   The MaxLength attribute is therefore efficient, as it acts as a             from RP software. Because of this, BGP origin prefix validation is
+macro that allows a single ROA to match many sub-prefixes. Those               supported by many routers, and does not incur a significant cost in
+sub-prefixes that are not actually advertised, however, but matched            terms of memory or CPU usage on routers.
+by the ROA can be vulnerable to forged-origin sub-prefix hijacks [24,
+26]. Thus, it is often recommended to use MaxLength only if all sub-           2.5    Related Work
+prefixes are actually advertised in BGP.
+                                                                               In this section, we discuss work related to understanding the RPKI
+                                                                               ecosystem and other approaches for securing BGP.
+2.4    Route Origin Validation
+                                                                               RPKI ecosystem There have been a number of studies [15, 25, 29,
+ASes in the RPKI use so-called Relying Party (RP) software in order
+                                                                               43, 58] that focused on the deployment status of RPKI; Gilad et
+to download and validate RPKI objects. From all of the ROAs, RP
+                                                                               al. [25] studied RPKI adoption from the perspective of network
+software constructs a set of tuples (ASN, ROA prefix, prefix length,
+                                                                               operators; they tried to understand the challenges and incentives to
+max length), which are called Validated ROA Payloads (VRPs). The
+                                                                               deploy RPKI by performing a survey among network practitioners.
+set of VRPs can then be made available to the AS’s routers using
+                                                                               Cohen et al. [11] showed that a partial deployment can also yield
+the RP protocol [6].
+                                                                                  4 Hence, the origin AS can authorize only IP prefixes that match
+   2 In fact, an ROA can contain any AS number (and not just the AS            the VRPs; this is to enforce aggregation and prevent (sub-)prefix hi-
+number of the AS signing the ROA). This enables ASes to outsource              jacking, in which a more specific prefix is announced than specified
+the BGP operations to another party or include another AS in a                 at the origin.
+multi-homing relationship.                                                         5 Note that RPKI does not protect against “AS-in-the-middle
+   3 If a prefix holder wishes to authorize multiple ASes they can             attacks” where an attacker prepends its AS to the origin AS on the
+simply create multiple ROA objects.                                            AS PATH; the neighbors will only attempt to validate the origin.
+
+
+
+
+                                                                         408
+                                                 VRPs                                                                           Number of
+    Trust                                                                                          Measurement
+               Measurement Period                   Percent                       Dataset            Period                        Prefixes
+   Anchor                                  Number of ASes                                                                 VPs
+                                                                                                                                 Uniq.    Orig.
+   APNIC       2011-01-21 – 2019-02-20       14,025    8.14%                      RIPE-RIS     2011-01-21 – 2018-12-27       24   905K    938K
+   LACNIC      2011-01-21 – 2019-02-20        4,510    9.33%                      RouteViews   2011-01-21 – 2018-12-27       23   958K 1.00M
+   RIPENCC     2011-01-21 – 2019-02-20       40,830   16.04%                      Akamai       2017-01-01 – 2018-12-31    3,300 1.94M 1.98M
+   ARIN        2012-09-24 – 2019-02-20        4,575    1.47%                  Table 2: Overview of BGP announcement datasets:The num-
+   AFRINIC     2011-01-21 – 2019-02-20          176    3.30%                  ber of (1) vantage points (VPs, collectors), (2) IP prefixes, and
+Table 1: Overview of the RPKI datasets across five RIRs. The                  (3) IP prefixes with its origin AS observed in the datasets dur-
+number of VRPs and percentage of ASes that have VRPs pub-                     ing December 2018.
+lished is as of February 20, 2019.
+
+
+                                                                              (e.g., fraction of ASes for which an attacker could intercept traffic)
+significant security benefits through simulations. Reuter et al. [43]         through simulations, assuming that the security protocols were ei-
+proposed active measurement techniques using BGP announce-                    ther fully [22] or partially [13] deployed. Lychev et al. also showed
+ments under their control to study the uptake of RPKI validation              that BGP security protocols that aim for path validation such as
+among network operators. Cartwright [15] proposes a data plane                BGPsec actually provide only modest benefits over origin authenti-
+approach to achieve the same goal through ICMP messages.                      cation [35] protocols such as RPKI.
+   Wählisch et al. [58] focused on the deployment of RPKI in the
+Web ecosystem by checking announcements for prefixes hosting                  3     DATASETS AND APPROACH
+Alexa 1M websites. They found, surprisingly, that less popular web-           We start out by briefly discussing the datasets we use and our
+sites are more likely to be secured than prominent sites.                     general approach for analyzing this data.
+   Other studies focused on the security of RPKI; Gilad et al. [26]
+pointed out that the MaxLength attribute of ROAs could weaken                 3.1     RPKI data
+BGP security unless all sub-prefixes matched on an ROA with the
+                                                                              Each of the five RIRs maintains an rsync repository with RPKI data
+MaxLength attribute were actually announced. Cooper et al. [12]
+                                                                              that relying parties can query in order to perform RPKI validation.
+showed that sophisticated attacks on RPKI repositories could cause
+                                                                              The RIPE NCC has maintained a daily archive of the repositories for
+transient failures of RPKI, thus taking some IP prefixes offline.
+                                                                              all five RIRs since the beginning of 2011;6 we are grateful to RIPE
+   Researchers have also studied and developed RPKI looking
+                                                                              NCC for making this data available for analysis. Table 1 provides
+glasses and software to inspect the current state of deploy-
+                                                                              an overview of this dataset for each of the RIRs.
+ment [44, 48, 49] and help operators verify correct RPKI deploy-
+ment [18, 51, 52].
+                                                                              3.2     BGP data
+   Our study extends these prior works in three ways. First, we
+examine all ROAs from all RIRs since the beginning of RPKI over 8             In order to understand how ROAs affect routing table construction,
+years ago. Second, we examine the current RPKI deployment status              we need BGP announcements as well. Thus, we leverage three
+using both RPKI objects as well as actual BGP announcements se-               datasets with BGP announcement data as shown in Table 2. The
+cured by RPKI. Third, we examine more types of misconfigurations              first two datasets are publicly available and cover the entirety of
+and potentially suspicious BGP announcements, which requires                  the period for which we also have RPKI data. However, these public
+longitudinal data.                                                            datasets rely on a relatively limited number of vantage points, which
+                                                                              can lead to a biased view of routing [41].
+Deploying BGP security protocols There is a large body of work                   To mitigate this, we have also obtained a much larger dataset
+that studies security issues in BGP [5, 27], investigates common              from a large CDN that contains BGP announcement data from
+misconfigurations [38], proposes security extensions to BGP such              thousands of vantage points globally. While the large CDN dataset
+as soBGP [59], S-BGP[32], BGPsec [23], or identifies overall chal-            provides us a much greater coverage of BGP announcements, it
+lenges to securing interdomain routing [21]. Due to the massively             comes with two caveats. First, the dataset was only available begin-
+distributed nature of the network, however, it has been challenging           ning in 2017, and thus we only have data for the final two years of
+to estimate the deployment status of these security protocols or              the study. Second, the dataset comes from direct peering between
+even compare the pros and cons across different security protocols.           the CDN and various ASes, and it contains many private BGP an-
+Gill et al. pointed out that security concerns alone do not provide           nouncements (i.e., those announced only to the CDN). Thus, from
+sufficient motivation for network operators to deploy new security            the large CDN dataset, we remove the private BGP announcements
+protocols, and thus proposed a strategy to encourage adoption of              by only keeping announcements for IP prefixes where we observed
+BGP security protocols (e.g., BGPsec) by providing appropriate in-            a corresponding BGP announcement for that prefix on that day in
+centives to ISPs [20]. On the other hand, Subramanian et al. sought           one of the public data sets.
+an alternative, easier to deploy, way to ensure path security using
+cryptographic functions to check bogus route advertisements in                   6 There are a few days over the eight year time period during
+the control plane [53]. Several studies compared the effectiveness            which data was not recorded correctly: out of 2,952 days during the
+of BGP security protocols by quantifying the impact of attacks                measurement period, data was unavailable on 45 (1.52%) of them.
+
+
+
+
+                                                                        409
+   Across all of the data sets, we use over 46 billion BGP announce-                                                  40000
+
+
+
+
+                                                                                   IP Prefixes (IPv4)
+ments for analysis in the remainder of the paper. Finally, a note                                                              APNIC
+                                                                                                                      30000  LACNIC
+about terminology: whenever we refer to authorizations published
+
+
+
+
+                                                                                       # of VRP
+                                                                                                                            RIPENCC
+in RPKI repositories, we will use the term ROAs. In most cases,                                                       20000     ARIN
+                                                                                                                             AFRINIC
+however, we are discussing validation, in which case we will use
+the term VRPs, as that is how such data is typically processed by                                                     10000
+routers.                                                                                                                 0
+                                                                                                                        20
+
+
+
+
+                                                                                authorized by VRP authorized by VRP
+3.3    IPv4 vs. IPv6
+                                                                                                                        15
+
+
+
+
+                                                                                                      % of ASes
+This paper focuses exclusively on IPv4, and does not analyze or
+compare our findings with IPv6. We do so for a number of reasons.                                                       10
+First, in a preliminary analysis we performed of the IPv6 data, we                                                       5
+did not observe apparent differences between IPv6 and IPv4 in
+terms of trends in growth of the number of VRPs [46]7 . Hence,                                                           0
+                                                                                                                        40
+analyzing IPv6 did not provide much additional information about
+the development of the RPKI as an ecosystem. Second, it is difficult                                                    30
+
+
+
+
+                                                                                    % of IPv4s
+to conduct apples-to-apples comparisons between IPv4 and IPv6
+deployments. For example, consider our analysis of the fraction of                                                      20
+the address space covered by the RPKI. The IPv4 address space is                                                        10
+much more densely allocated and announced relative to IPv6, and
+thus the fraction of address spaced covered by the RPKI for IPv4                                                         0
+                                                                                                                         2011 2012 2013 2014 2015 2016 2017 2018 2019
+would be much larger. However, this says nothing of the disparity
+                                                                                                                                             Date
+in terms of how much traffic such prefixes cover, making it difficult
+to understand the impact of such differences between IPv4 and IPv6.
+To avoid confusion, we limit ourselves to IPv4 and leave analysis               Figure 2: The growth of RPKI in terms of the # of VRP IP
+of IPv6 (along with corresponding traffic volumes) to future work.              prefixes, the % of ASes where some of their IPv4 addresses
+We note that the datasets we released include data for IPv6 and                 are covered by VRPs to all ASes managed by the RIR, the %
+most of the tools we ship to use with the datasets (most notably                of IPv4 addresses covered by VRPs to all assigned IPv4 ad-
+the validation tool called “Ziggy”) support processing of IPv6 data.            dresses for the RIR.
+
+4     RPKI DEPLOYMENT
+                                                                                each of the RIRs. From the table and figures, we make a number of
+We begin our analysis of RPKI by focusing on the deployment in                  observations.
+terms of the number of ROAs we see in the RPKI repositories, and                   First, we observe a general increasing trend in all three graphs
+the fraction of ASes that are using RPKI, and the fraction of all IPv4          in Figure 2, indicating a significant and increasing adoption of
+space that it covers. To do so, we perform a longitudinal analysis              RPKI both in terms of the number of ASes that have VRPs and
+of all RPKI objects along with over 46 billion BGP announcements                the fraction of IP space covered by a VRP. This is encouraging as
+collected from more than 3,300 different vantage points to answer               previous work [25] showed that 84% of network practitioners were
+two questions: 1) how have network operators published ROAs to                  not interested in deploying RPKI through a survey in 2016.
+protect their resources? and 2) how many BGP announcements are                     Second, we observe that overall RPKI deployment varies signifi-
+actually covered by VRPs?                                                       cantly between RIRs: between 1.38% (ARIN) and 15.11% (RIPENCC)
+                                                                                of ASes are included in one or more VRPs in our latest snapshot,
+4.1    Deployment of VRPs                                                       and between 2.7% (AFRINIC) and 30.6% (RIPENCC) of the total IPv4
+Our goal in this section is to conduct a large-scale, longitudinal, and         address space administered by RIRs is covered by VRPs. Interest-
+detailed study of RPKI adoption. To observe how network operators               ingly, a few registries have a rapidly growing RPKI coverage. For
+have deployed RPKI since the early days of its launch,8 we use the              example, the fraction of the total IP space covered by VRPs rose
+RPKI repository data we received from RIPE. Table 1 shows the                   from 19.2% to 30.6% between January 1, 2017 and February 27, 2019
+number of VRPs, derived from ROAs, in each of the trust anchors                    Third, we observe a few upward “spikes” in the data set. For exam-
+(i.e., RIRs) as well as the percentage of ASes that have at least one           ple, the sharp spike between June 6th and 19th , 2017 for the number
+VRP.9 Figure 2 plots the number of VRPs, the percentage of ASes                 of VRPs in APNIC was primarily due to ROAs for three ASNs.10 In
+that have at least one VRP, and the IP space covered by VRPs in                 fact, they used to have ROAs that included the MaxLength attribute
+    7 As of May 2019.                                                           to cover a large number of IP prefixes with a single ROA. During
+    8 APNIC, LACNIC, RIPENCC, AFRINIC launched their RPKI                       the aforementioned period, however, more than 13,000 VRPs were
+service in January 2011 and ARIN did so in September 2012 [39].                 introduced separately by disabling all of the MaxLength attributes.
+    9 To do this, we calculate the number of ASes and the IP space              This explains why the number of VRPs spiked, but the fraction of
+allocated to each of the RIRs by analyzing all NRO statistics (Number
+Resource Organization) [47].                                                                      10 AS4775, AS10091, and AS9299
+
+
+
+
+                                                                          410
+                                                                                  Percentage unique RPKI-invalid advertisements
+                    30                                                                                                             100
+                             Akamai                                                                                                      All                          Akamai
+ % of VRP-covered
+ announcements
+
+
+
+                    25     RIPE-RIS                                                                                                 80                              RIPE-RIS
+                    20   RouteViews                                                                                                                               RouteViews
+                                                                                                                                    60
+                    15
+                    10                                                                                                              40
+
+                     5                                                                                                              20
+                     0                                                                                                               0
+                     2011 2012 2013 2014 2015 2016 2017 2018 2019                                                                  100
+                                         Date                                                                                            Filtering > /24
+                                                                                                                                    80
+Figure 3: The percentage of BGP announcements covered by                                                                            60
+VRPs. We observe that the fraction of verifiable announce-
+                                                                                                                                    40
+ments is consistently increasing across all datasets.
+                                                                                                                                    20
+                                                                                                                                    0
+                                                                                                                                    2011 2012 2013 2014 2015 2016 2017 2018 2019
+IP space covered by VRPs remains unchanged. This change was in
+                                                                                                                                                           Date
+fact not initiated by the resource holders, but instead was caused by
+the introduction of a new management system at APNIC that uni-
+                                                                              Figure 4: The percentage of invalid BGP announcements
+fied management of RPKI and IRR. This system mistakenly started
+                                                                              from Akamai, RIPE-RIS, and RouteViews datasets: for the first
+disaggregating ROAs when existing data was imported into the
+                                                                              two years of its deployment, about 20.76% of the RPKI-
+system upon launch. When APNIC noticed the sharp increase in
+                                                                              covered BGP announcements are invalid.
+ROAs, they rolled backed this change and reintroduced ROAs with
+MaxLength attributes on June 19th , 2017, which makes the number
+of VRPs drop back to 7,200 [57]. Similarly, a large jump in VRPs for
+RIPENCC on July 31st , 2017 was due to AS8551 (Bezeq International,           5                                                   ROUTE ORIGIN VALIDATION
+Israel). In this case, the resource holder themselves disaggregated           We now turn to examining the central question in this paper: what
+ROAs that used the MaxLength attribute into separate ROAs. This               would happen if all ASes deployed RPKI validating routers? Thus, we
+led to an increase by 3,486 VRPs, whereas again, the fraction of IP           focus only on BGP announcements that are verifiable using RPKI
+space covered by VRPs remained unchanged.                                     by finding at least one VRP covering the announced IP prefixes;
+                                                                              consistent with prior work [8, 43], we refer to these prefixes as
+4.2                 BGP Announcements with RPKI                               covered prefixes and these announcements as covered announcements.
+With the knowledge of the number of VRPs that exist, we now                   We validate all BGP announcements in our datasets by comparing
+examine how many actual BGP announcements are covered by                      them with covering VRPs. We do so over the entire history of
+VRPs over time. Specifically, we focus on the percentage of BGP               our dataset to not only understand the fraction of valid/invalid
+announcements of which IP prefixes are covered by at least one                announcements today, but to also understand the overall trends.
+VRP. Note that having an IP prefix covered by a VRP does not by
+itself imply that the BGP announcement is valid (to be valid, it must         5.1                                                  Invalid announcements
+be exactly matched with the range of IP prefixes specified in the             Recall that a BGP announcement is considered invalid when the
+VRP); we examine the prevalence of invalid announcements in the               IP prefix is covered by at least one VRP but no VRP matches it; an
+next section.                                                                 announcement is considered unknown when the IP prefix is not
+   First, we observe that the number of unique pairs of IP prefixes           covered by any VRPs.
+with origin ASes is 2.0% ∼ 4.4% higher than the number of unique                 During the entire measurement period, we observed a total of
+IP prefixes as shown in Table 2. This implies that some IP prefixes           46 billion BGP announcements. Of these, 43 billion (91.9%) were
+are announced by multiple origins. This could be due to intended              unknown and 3.8 billion (8.1%) were covered; of the covered an-
+purposes such as multi-homing or unintended purposes such as                  nouncements, we find that 3.45 billion (90.4%) were valid and that
+route leaks or BGP hijacking. We discuss this later in the paper.             344 million (9.6%) were invalid.
+   Second, Figure 3 plots the fraction of BGP announcements that                 Figure 4 plots the fraction of all covered BGP announcements
+are covered by VRPs. A key observation is that the number of                  that were invalid that we observed during our measurement period.
+BGP announcements that are verifiable using RPKI is consistently              However, according to the recommended best practices for network
+increasing across all datasets: between 9.98% and 11.28% of BGP               operators, BGP routes for prefixes more specific than /24 are not
+announcements are covered by VRPs in our latest snapshot.                     usually accepted to prevent routing table deaggregation [19, 31].
+   In summary, we observe a surprising level of deployment for                Thus, to obtain the effective BGP announcements that will end
+RPKI, both in terms of the number of ASes and the fraction of IP              up in BGP tables, we also plot the same graph and filter out the
+space covered by VRPs. Next, we explore whether the BGP an-                   BGP announcements more specific than /24 in the bottom plot. We
+nouncements covered by VRPs are actually valid or not.                        make a number of observations.
+
+
+
+
+                                                                        411
+                      30                                                                                                    6000
+ Percentage unique
+
+
+
+                                                       Akamai
+  RPKI-invalid adv.
+
+
+
+                      25                             RIPE-RIS                                                                      Akamai
+                      20                           RouteViews                                                               4000
+
+
+
+
+                                                                                 Number of Unique Invalid Advertisements
+                      15
+                                                                                                                            2000
+                      10                                                                                                             Too Specific
+                                                                                                                                     Wrong ASNs
+                       5                                                                                                       0
+                       0                                                                                                    6000
+                           Apr 2018   Jul 2018      Oct 2018    Jan 2019                                                           RIPE-RIS
+                                            Date                                                                            4000
+
+Figure 5: The percentage of invalid BGP announcements be-                                                                   2000
+gins to drop on September 2018.
+                                                                                                                               0
+                                                                                                                           12000
+   First, we observe that a large fraction of covered BGP announce-                                                                Routeviews
+ments were actually invalid at the very early stages of RPKI deploy-                                                        8000
+ment across all datatsets regardless of /24 filtering; for example,
+during 2011, 8,005,538 out of 16,363,056 (48.92%) covered announce-                                                         4000
+ments were invalid (in the RouteViews dataset). Interestingly, we
+find that 2,199,715 (27.47%) of invalid announcements were due to                                                             0
+announced IP prefixes being covered, but not matched with VRPs                                                                2011 2012 2013 2014 2015 2016 2017 2018 2019
+even though their ASNs matched with the VRP ASNs, which implies                                                                                     Date
+potential misconfigurations of VRPs.
+   Starting from 2012, however, the situation became significantly               Figure 6: The number of invalid BGP announcements due to
+better: in our final snapshot, only between 2.25% and 5.39% of the               too specific or wrong ASN. Note that the y axis extends up to
+covered IP prefixes were invalid (depending on the dataset). We                  21,028 (wrong ASN) on the RouteViews and up to 11,193 (Too
+believe the sharp decrease in the fraction of RPKI invalid announce-             Specific) on the RIPE-RIS dataset.
+ments are due to the RIRs who improved their hosted services and
+RPKI training from 2012. For example, the RIPE NCC-hosted inter-
+face started to show BGP announcement validity to prefix owners                     As we mentioned in Section 2, BGP announcements can be
+and offered the option to operators to receive alerts about invalid              marked as invalid primarily due to two reasons:
+announcements. The interfaces of LACNIC and APNIC were simi-                     • Too-specific: An announcement would be considered invalid
+larly modified to show invalid announcements to their users more                   if the announcement is otherwise valid but the announced IP
+clearly.                                                                           prefix is too specific. In other words, the IP prefix is covered by at
+   Second, when we focus on the last 12 months of our measurement                  least one VRP, and the origin in the announcement is identical
+period, we also notice that the overall percentage of invalid prefixes             to the VRP ASN, but the announced IP prefix does not exactly
+has further been decreasing since September 2018. A zoomed-in                      match with the VRP IP prefix. In such a case, it is likely due to
+version of the graph is presented in Figure 5. We believe this is due              misconfigurations rather than malicious attempts such as prefix
+to recent efforts from IXPs who adopted RPKI as a service. Some                    hijacking as the origin AS and VRP ASN are identical.11
+networks started to drop RPKI invalids either by using this service              • Wrong ASN: The announced prefixes are covered by at least one
+or by deploying RPKI validation themselves; for example, DE-CIX                    VRP, but none of the VRPs match the ASN in the announcement.
+deployed RPKI and started to drop RPKI invalid prefixes in 2019 [50].              These announcements could be malicious as the announcing AS
+Thus, the prefix owners who published invalid RPKI prefixes had                    is not supposed to announce such a prefix. However, it may also
+two choices to prevent their announcements from being filtered by                  be a configuration error (e.g., ROAs that were not updated when
+either (a) removing their invalid ROAs or (b) fixing them to match                 the IP prefixes were moved to another ASN, or AS multi-homing
+their announcements. Since we did not observe a drop in RPKI                       where the ROAs were created for one ASN only).
+coverage in Figure 2, we believe that the owners preferred to fix
+                                                                                 Figure 6 shows the distribution of the reasons during our measure-
+their ROAs.
+                                                                                 ment period. We now dig deeper into each of these two reasons.
+5.2                   Why BGP announcements are invalid
+                                                                                 5.3                                       Too-specific announcements
+We just observed that while the fraction of invalid BGP announce-
+                                                                                 During our measurement period, we observe that on average 48.0%
+ments was originally over half of the covered announcements, it
+                                                                                 ∼ 51.5% of the invalid announcements are too-specific. For example,
+is now much smaller and stable. However, it appears that a non-
+trivial fraction of the covered BGP announcements—between 2%                       11 In theory, an attacker can announce a more specific prefix
+and 5%—are still invalid. We now examine the underlying “reasons”                and prepend the victim’s AS to the path. However this is unlikely
+that make these BGP announcements invalid.                                       because the announcement would still appear as RPKI invalid.
+
+
+
+
+                                                                           412
+we observe a spike on January 21, 2012 in the RouteViews dataset;
+
+
+
+
+                                                                                    % of VRP prefixes
+                                                                                                             100
+this was due to AS 12322 (Free SAS, France), who announced 7,671
+
+
+
+
+                                                                                       w/o MaxLen
+                                                                                                              80
+invalid IP prefixes, about 96.0% of a total of 7,988 invalid BGP an-                                          60
+nouncements on that date. When we investigated this, we found                                                 40
+that they published 6 ROAs, which contain 8 IP prefixes; however,                                             20
+                                                                                                               0
+none of them specified the MaxLength attribute to include more                                                 2011 2012 2013 2014 2015 2016 2017 2018 2019
+specific IP prefixes. They immediately fixed the issue by adding                                                                   Date
+the MaxLength field to include more specific IP prefixes on Jan-                                 (a) % of all IPv4 prefixes in VRPs without MaxLength
+uary 22, 2012. Interestingly, we observe that they introduced 8
+more ROAs, six of which with a MaxLength attribute on October                                                100
+23, 2018. However, they again failed to specify a proper value for                                            80
+                                                                                                                       Akamai
+                                                                                                                     RIPE-RIS
+
+
+
+
+                                                                                    % of Valid Adv.
+MaxLength, which caused nearly 8,800 IP prefixes to go invalid.
+
+
+
+
+                                                                                     w/o MaxLen
+                                                                                                                   RouteViews
+Similarly, we also observe another spike on April 16, 2018 on both                                            60
+the RouteViews and RIPE-RIS datasets; this was due to AS 5089                                                 40
+(Virgin Media Limited), which announced more than 3,200 IP pre-
+                                                                                                              20
+fixes without setting the MaxLength in the ROAs. Those invalid BGP
+announcements would not have occurred if their covering ROAs                                                   0
+
+
+
+
+                                                                                    % of Too-specific Adv.
+                                                                                                             100
+had been specified correctly, either by setting a more specific prefix
+length in the MaxLength attribute or publishing separate ROAs that                                            80
+
+
+
+
+                                                                                         w/o MaxLen
+cover the IP prefixes that they announced.                                                                    60
+   Interestingly, a recent survey study [25] showed that some net-                                            40
+work administrators were confused regarding the MaxLength at-
+                                                                                                              20
+tribute; for example, network administrators would incorrectly
+assume that the prefix length specified in the ROA would validate                                              0
+                                                                                                               2011 2012 2013 2014 2015 2016 2017 2018 2019
+all IP prefixes that are more specific or would not know how to                                                                    Date
+properly set the MaxLength attribute in ROAs.12
+                                                                                   (b) % of valid (top) and too-specific (bottom) BGP announce-
+5.3.1 Usage of MaxLength: Now we examine how the MaxLength                         ments that do not have the MaxLength attributes.
+attribute is currently being used in ROAs, and why there have
+been so many too-specific BGP announcements that end up being                   Figure 7: More than 92% of the too-specific announcements
+marked as invalid.                                                              do not set the MaxLength at the time of writing.
+   We first obtain the IP prefixes from VRPs that do not contain the
+MaxLength attribute from all VRPs; Figure 7(a) plots the fraction of
+IP prefixes in VRPs without the MaxLength attribute. Interestingly,
+we find that the use of MaxLength has been decreasing and only
+11.2% of IP prefixes in VRPs use it in our latest snapshot. This aligns
+with a previous report [26].                                                    that some network operators are likely confused about setting the
+   However, when we focus on the actual prefixes that have been                 MaxLength attribute correctly.
+announced through BGP, we see a different behavior. 7(b) compares                   As a final example, we look at a steep increase in BGP announce-
+the fraction of valid (top) and too-specific IP prefixes (bottom)               ments that are invalid because they are too specific on May 6, 2014;
+where their matched and covered VRPs do not have the MaxLength                  in fact, the number of too-specific announcements without the
+attribute. We make a number of observations; we first note that the             MaxLength attribute in their covered VRPs did not change much
+MaxLength attribute is widely used to validate BGP announcements;               (only less than 40 VRP IP prefixes were added). However, AS 6147
+even though the usage is decreasing, we still see that 52.3% of the             (Telefónica del Perú S.A.A, Peru) who previously announced 609 IP
+valid IP prefixes are validated through VRPs with the MaxLength                 prefixes too-specific (in the RouteViews dataset) due to their nar-
+attribute.                                                                      row MaxLength attributes (/19) in their VRPs updated all of their
+   We then focus on too-specific announcements; the bottom graph                VRPs to cover more specific prefixes by increasing the MaxLength
+in 7(b) shows that more than 90% of the too-specific announcements              attribute to /24. In the plot, this then leaves mostly prefixes that
+(and more than 92% in our latest snapshot) are due to VRPs that                 are too-specific without a MaxLength attribute, as evidenced by
+do not have the MaxLength attribute. In other words, the majority               the line rising from around 50% to nearly 90%. This also indicates
+of the too-specific announcements could have been validated if                  that the MaxLength attribute can effectively fix misconfigurations
+their VRPs were to correctly set the MaxLength attribute or create              if used correctly.
+explicit VRPs for all the more specifics. This result empirically shows             As we have seen, it seems to be highly likely that invalid BGP
+                                                                                announcements caused from too-specific IP prefixes are due to
+  12 For this reason, a recent Internet Draft [24] recommends to                misconfigurations rather than suspicious attempts such as hijacking.
+avoid using the MaxLength attribute in ROAs, and publish separate               Next, we turn and focus on the BGP announcements originated
+ROAs covering IP prefixes that authorized ASes may announce.                    from the wrong ASN.
+
+
+
+
+                                                                          413
+5.4    Wrong ASN announcements                                                                                    3000
+                                                                                                                        Akamai
+We now examine the fraction of BGP announcements that are cov-                                                    2500
+ered, but that are invalid because the origin AS in the announcement                                              2000
+does not match the one in the VRPs. As these announcements are                                                    1500          Same ISP
+
+
+
+
+                                                                                The number of BGP announcements
+originated from different (unauthorized) ASes, they could be an                                                   1000         P-C or C-P
+                                                                                                                           DDoS Protection
+attempt to hijack the IP (sub-)prefixes. However, it does not always                                               500              Other
+mean that all invalid BGP announcements with wrong ASNs are                                                          0
+
+
+
+
+                                                                                       having a wrong ASN
+hijacking attempts; there could be a number of causes, including                                                  3000
+                                                                                                                        RIPE-RIS
+many representing misconfigurations:                                                                              2500
+                                                                                                                  2000
+• Two different ASNs managed by the same operator: An op-
+                                                                                                                  1500
+  erator that owns and manages multiple ASNs may update the IP
+                                                                                                                  1000
+  prefixes without updating the ROAs, thus making the originating
+                                                                                                                   500
+  AS in the BGP announcement mismatch with the ASN in the
+                                                                                                                     0
+  VRP. To identify this case, we use CAIDA’s AS-organizations                                                     3000
+  datasets [16] to map ASNs to ISPs, looking for invalid announce-                                                2500
+                                                                                                                        Routeviews
+  ments where the conflicting ASes are owned by the same ISP.
+                                                                                                                  2000
+• Provider–Customer Relationship: An AS can sub-allocate                                                          1500
+  part of its IP prefixes to its customers. In such a case, if the                                                1000
+  AS publishes ROAs containing the sub-allocated IP prefixes with                                                  500
+  its ASN instead of the customer’s ASN, the BGP announcements                                                       0
+  originated from the customer will be invalid. We use CAIDA’s                                                       2011 2012 2013 2014 2015 2016 2017 2018 2019
+  AS relationship dataset [17] to identify relationships between                                                                         Date
+  ASes, looking for invalid announcements where the conflicting
+  ASes are known to have a provider–customer relationship.                      Figure 8: The number of BGP announcements with wrong
+• DDoS Protection: Origin ASes may outsource “scrubbing” of                     ASNs in four categories. Note that y axis on the RouteViews
+  their traffic by using traffic diversion to a DDoS protection service         dataset extends to 16,498!
+  (DPS) [30]. These services usually announce IP prefixes on behalf
+  of owners, which may cause their BGP announcements to be
+  invalid if the prefix owner has not updated the ROAs. For this                was actually AS 14080, thus causing all of them to be considered
+  analysis, we obtain a list of DDoS protection ASes from a recent              invalid.
+  report by Forrester [56], and look for invalid announcements                     Unfortunately, it took almost 9 months for the problem to be
+  where their announcing AS is a known DDoS protection AS.                      corrected. They first deleted all ROAs on March 2, 2012, changing
+                                                                                the status of all of the announcements to unknown.14 After that,
+• Other: If none of the prior cases hold, we do not know the exact              they reverted to the same ROAs on March 6, 2012 and stopped
+  cause of the invalid announcement. This case would include                    announcing the prefixes from the invalid origin.
+  attempted (sub-)prefix hijacking, as such announcements would                    We also observe a similar misconfiguration in the Akamai dataset
+  not likely fall under the three categories above. We therefore                where Altice Dominicana—which manages both AS 12066 and
+  label these as “other”.13                                                     AS 28118—announced 545 IP prefixes from AS 28118, which were
+Based on this classification, we plot the number of the announce-               supposed to be announced from AS 12066. Similar to the misconfig-
+ments falling into each of the categories in Figure 8. We immediately           uration of Telmex Colombia S.A., these invalid BGP announcements
+observe non-trivial fractions of the same ISP, provider–customer,               lasted for more than 17 months from July 26, 2017 until the latest
+and other invalid announcements; only rarely do we observe in-                  snapshot of the Akamai dataset.
+valid announcements due to DDoS protection services. We make a                     Second, surprisingly, we rarely see announcements from DDoS
+number of observations below.                                                   protection ASes. We found only 15 IP prefixes (in the RouteViews
+   First, we can confirm multiple cases where an ISP swaps and                  dataset) in our latest snapshots: AS 26415 (Verisign Global) announc-
+announces their IP prefixes between two ASes that it manages; for               ing 6 IP prefixes owned by AS 13285 (TalkTalk Communications),
+example, Telmex Colombia S.A that manages two ASes, AS 10620                    AS 19905 (Neustar) announcing an IP prefix owned by AS 21599
+and AS 14080, announced 1,518 IP prefixes (RouteViews dataset)                  (Cable Onda) and 3 ASes from Level3 announcing 8 IP prefixes
+and 1,118 (RIPE-RIS dataset) from AS 10620 between June 8, 2011                 owned by 3 different ISPs.
+and March 2, 2012; however, these IP prefixes were supposed to                     Third, we observe that mismatches between ASNs who are in a
+be announced from AS 14080 as the ASN of their matched VRPs                     provider–customer relationship happen frequently. For example,
+                                                                                AS 6128 (Cablevision Systems Corp.) who sub-allocated its IP pre-
+   13 We acknowledge that the cases we listed above are not exhaus-             fixes to 9 different ASes has ROAs that cover all of the sub-prefixes
+tive; however, even this limited list allows us to understand general
+behavior of the BGP announcements that do not fall into these                     14 This means validating routers will accept the announcements,
+categories.                                                                     but all the security benefits of RPKI have been effectively stripped.
+
+
+
+
+                                                                          414
+          1                                                                                          30
+
+
+
+
+                                                                             of unauthorized Advs.
+                                                                                                              Akamai
+         0.8                                                                                         25     RIPE-RIS
+
+
+
+
+                                                                                 % of unknown
+                                                                                                     20   RouteViews
+         0.6
+         0.4                                                                                         15
+                                           Same ISP
+         0.2                              P-C or C-P                                                 10
+               Akamai                          Other
+          0                                                                                          5
+          1                                                                                          0
+         0.8                                                                                         2011 2012 2013 2014 2015 2016 2017 2018 2019
+                                                                                                                         Date
+   CDF
+
+
+
+
+         0.6
+         0.4
+                                                                            Figure 10: The percentage of unauthorized BGP announce-
+         0.2                                                                ments that are in the “other” category. Note that y axis ends
+               RIPE-RIS
+          0                                                                 at 30%.
+          1
+         0.8
+                                                                            • We also find a hijack attempt concentrated in a certain country:
+         0.6                                                                  AS 55649 (a private ISP in Hong Kong) announced 1,091 IP pre-
+         0.4                                                                  fixes originally owned by 12 ASes on February 28, 2018, 10 of
+         0.2                                                                  which are located in China.15
+               RouteViews
+          0                                                                 • We also observe cases where one AS issued large numbers of
+                 100 200 300 400 500 600 700 800 900 1000                     BGP announcements with prefixes owned by multiple ASes; for
+                            # of Dates Observed                               example, AS 37468 (Angola Cables) announced more than 3,500
+                                                                              IP prefixes originally owned by 82 ASes on May 11, 2018. They
+Figure 9: The CDF of the days that an AS has sent unautho-                    did so again on July 19, 2018 by announcing more than 15,000 IP
+rized BGP announcements with wrong ASNs. Because DDoS                         prefixes owned by 1,554 ASes.16
+protection ASes have announced less than 15 prefixes, we
+                                                                            • Interestingly, we also often observe a case where one AS becomes
+have left this category out. Note that the x axis extends to
+                                                                               a target from many ASes; we observe, e.g., , 401 IP prefixes owned
+over 2,234 days (C-P).
+                                                                               by AS 27738 (Ecuadortelecom S.A.) being announced by 743 ASes
+                                                                               on January 7, 2018, but we could not find corroborating evidence
+but set the ASN as their own ASN, thus making the IP prefixes                  for why this happened.
+announced from all of their customer ASes invalid from October                  From these examples, we observe that ASes who misconfigured
+27, 2013 to our latest snapshot.                                            their ROAs (e.g., an ISP swapping the IP prefixes between two ASes
+    We also observe that the case where a provider AS publishes             it manages, a provider AS not updating the ROAs) have generally
+the ROAs but its customer announces the IP prefixes has happened            announced unauthorized prefixes a bit longer. Based on this obser-
+more frequently than the opposite case; during our measurement              vation, we plot Figure 9, which shows the cumulative distribution
+period, we find that 87.95% (Akamai), 89.46% (RIPE-RIS), and 84.40%         of the number of dates on which we observed a same pair of ori-
+(RouteViews) of those announcements are due to providers that               gin AS and IP prefix of invalid BGP announcements during our
+have not updated the ASN in their ROAs to be the customers’ ASN             measurement period in each of the categories. We make a num-
+(as opposed to a customer whose ROAs announce the provider’s                ber of observations; First, we observe that invalid announcements
+full prefix). We believe that the main cause of this would be the           in the “other” category are generally announced shorter than the
+cases where a provider announces covered-prefixes, but it (a) does          other categories across the datasets; for example, 34.6% (Akamai),
+not have information on more specific announcements (and how                55% (RIPE-RIS), 86.9% (RouteViews) of “other” announcements are
+they change) made by their customers, and (b) it simply cannot              observed only for a single day.
+delegate ROA management for this space to their customers when                  Second, we also find invalid BGP announcements from the ASes
+using RIR-hosted services.                                                  in a customer-provider relationship last longer; for example, 10.3%
+    Four, we observe a number of invalid announcements in the               (Akamai), 9.8% (RIPE-RIS), 9.6% (RouteViews) of these are observed
+“other” category with different behaviors; we present a few notable         more than 365 days.
+examples where a single AS announced more than 1,000 prefixes                   We have shown that many unauthorized BGP announcements
+that are actually owned by other ASes or more than 1,000 prefixes           are not necessarily suspicious attempts. Rather, they are likely
+of an owner AS are announced by unauthorized ASes at a given                to be due to misconfigurations such as setting ROA IP prefixes
+date across our datasets;                                                          15 AS 4837, AS 17785, AS 17799, AS 17897, AS 4809, AS 23650,
+• From January 12, 2017 to March 9, 2017 (in the Akamai dataset),           AS 132719, AS 17896, AS 4134, AS 17923.
+   AS 395561 (Absolute Connections) announced more than 28,322                 16 This incident was reported at https://twitter.com/bgpstream/
+   IP prefixes owned by 694 other ASes, which suggests that it had          status/1020007234082889728. However, the report shows only one
+   attempted to hijack many IP prefixes.                                    IP prefix from AS 12343.
+
+
+
+
+                                                                      415
+         1                                                                               1
+       0.9                                                                             0.9
+       0.8                                                                             0.8
+       0.7                                                                             0.7
+       0.6                                                                             0.6
+ CDF
+
+
+
+
+                                                                                 CDF
+       0.5                                                                             0.5
+       0.4                                                                             0.4
+       0.3                                    Akamai                                   0.3                                   Akamai
+       0.2                                  RIPE-RIS                                   0.2                                 RIPE-RIS
+       0.1                                RouteViews                                   0.1                               RouteViews
+         0                                                                               0
+             1   2     3     4     5     6      7     8     9    10                               5        10       15        20       25        30
+                              # of Victim ASes                                                              # of Attacker ASes
+
+Figure 11: CDF of the # of victim ASes that an attacking AS                     Figure 12: CDF of the # of attacking ASes that a victim AS
+has announced. Note that the x axis extends to 701 ASes                         has been targeted by. Note that the x axis extends to 1,947
+(Akamai)                                                                        ASes (RouteViews)
+
+too wide making BGP announcements too-specific or announcing                    • For 6 (2.15%) hijack reports, we observe that victim AS and at-
+prefixes from a different ASN managed by the same ISP. Our simple                 tacking AS were actually from the same ISP.
+classification methods allow us to (loosely) estimate what fraction             • For 10 (3.58%) hijack reports, we find that they are customer
+of invalid BGP announcements is possibly due to misconfigurations.                and provider relationships and 9 of them are the case where a
+This leaves us with a rest category of “other” invalid announcements.             provider AS registers ROAs, but the IP prefixes are announced
+As Figure 10 shows, the number of “other” invalids is low, but not                by its customer.
+negligible (1.39% for Akamai, 1.07% for RIPE-RIS, and 1.13% for
+                                                                                • We are not able to find any DDoS protection ASes that announce
+RouteViews at the end of our measurement period). In the next
+                                                                                  prefixes on behalf of the origin.
+section, we attempt to find explanations for this last category.
+                                                                                • For 263 (94.27%) hijack reports (the remainder), we find that they
+6      OTHER INVALID ANNOUNCEMENTS                                                are in our “other” category.
+We now turn our attention to examining the remaining invalid                       These results show a potential impact of RPKI when it is deployed
+announcements in the “other” category, for which we have not yet                correctly without misconfigurations; the few misconfigurations can
+found an explanation. As these announcements originate from an                  be easily patched by publishing correct ROAs. The remaining hijack
+origin which has likely nothing to do with the authorized origin,               reports are at least suspicious and can be effectively filtered by
+we first compare them with well-known hijacking incidents. For                  relying on RPKI validation.
+the remainder of this section, we will refer to the AS sending out
+unauthorized and unknown announcements as the “attacking AS”                    6.2    Attacking vs. Victim AS
+and the owner as the “victim AS” regardless of the actual intent                We now attempt to further understand unexplained invalid an-
+behind the announcements, which is consistent with prior BGP                    nouncements by looking who pretended to be whom (attacker vs.
+work (such as [36]).17                                                          victim) in these announcements. First, we examine for how many
+                                                                                ASes an attacking AS has tried to steal prefixes. Figure 11 shows the
+6.1     Case study: BGPStream                                                   cumulative distribution of the # of victim ASes that an attacking AS
+BGPStream [9] monitors the real time BGP announcements from                     has tried to hijack. We observe that the majority of suspected attack-
+multiple datasets such as RouteViews and RIPE-RIS. Among other                  ing ASes focus on a single victim. 75.4% (Akamai), 78.7% (RIPE-RIS)
+features, it attempts to detect hijacking attempts [40]. The project            and 71.8% (RouteViews) respectively are cases where a suspected
+also announces suspected hijacking incidents via their Twitter ac-              attacker targets just a single victim AS. However, we also observe
+count [10]; for cross-validation purposes, we crawled all reports               a few cases where some ASes attacked many victims; The 99t h
+from this account on suspected BGP hijacking attempts.                          percentile of the # of victim ASes are over 12 ASes (Akamai), 11
+   Out of 2,361 IPv4 hijack reports collected from the account,                 ASes (RIPE-RIS), and 19 ASes (RouteViews). In fact, AS 395561
+2,082 IP prefixes are unknown to RPKI, but 279 were covered by at               (Absolute Connection) announced 11,512 prefixes owned by 701
+least one of the VRPs we have. The 279 hijack reports contain (1)               ASes (in the Akamai dataset), AS 200759 (Innofield) announced 362
+the time when they detect the hijack, (2) IP prefix address, (3) prefix         prefixes owned by 76 ASes (in the RIPE-RIS dataset), and AS 37468
+length, (4) the authorized AS to announce the IP prefix, and (5) the            (Angola Cable) announced 15,364 prefixes owned by 841 ASes.
+attacking AS. From this information, we are able to find each of the               Then, we shift focus to victim ASes to understand what are likely
+ROAs and their VRPs in our dataset. We next validate and classify               popular targets because we observe invalid announcements from
+them based on the same classification method we have introduced;                many attacking ASes. Figure 12 shows the cumulative distribution
+                                                                                of the number of attacking ASes that have attempted to steal the
+  17 We point out, again, that RPKI cannot be used to distinguish               prefixes of a single AS.
+those that prepend their ASN to the origin AS or impersonate the                   We observe that the average # of attacks that a victim AS receives,
+origin AS because RPKI only attempts to verify the origin.                      overall, is more than the average # of ASes targeted by attacking
+
+
+
+
+                                                                          416
+ASNs (Figure 11). This implies that there are popular ASes that                                         0.3
+
+
+
+
+                                                                                the other category
+are targeted by many different ASes preferentially. For example,
+
+
+
+
+                                                                                  % of traffic from
+                                                                                                       0.25
+AS 60458 (Xtudio Networks S.L.U) was attacked from 138 ASes (from                                       0.2
+the Akamai dataset) and AS 8048 (CANTV Servicios Venezuela) was
+                                                                                                       0.15
+attacked from 173 (RIPE-RIS) and 1,947 ASes (RouteViews dataset)
+during our measurement period. Considering that the prefixes of                                         0.1
+the victim ASes are announced from more than 100 ASes that are                                         0.05
+not in any provider-customer relationship, nor in the same ISP, nor                                      0
+from the DDoS protection AS, we argue that these are highly likely                                       12/01   12/07   12/14    12/21        12/28
+to be targeted attacks.                                                                                                   Date
+   We find that we lack sufficient evidence to attribute intent to
+all of the unexplained invalid announcements. Nevertheless, cir-               Figure 13: The percentage of Akamai’s HTTP/S traffic com-
+cumstantial evidence suggests that at least part of these invalid              ing from the IP prefixes in the “other” category between De-
+announcements are likely hijack attempts. If routers apply RPKI                cember 1st and December 28th , 2018. Note that y axis ends at
+validation, then such suspicious announcements will be filtered out,           0.3%.
+effectively protecting against hijacks. If, on the other hand, these
+invalid announcements are due to some other, unknown configura-
+tion error, then at least such errors are detected and can be resolved
+in collaboration with the legitimate prefix holder.                               Hence, there is a trade-off to consider for these operators. Strictly
+                                                                               speaking, their networks will be more secure against malicious hi-
+                                                                               jacks by not allowing more specifics, but at the same time traffic
+                                                                               engineering will be indistinguishable from such hijacks. If one
+6.3    Traffic from the “other” category
+                                                                               does not ever use such traffic engineering, then the decision is
+We now turn to examining the amount of traffic from the “other”                simple. However, for networks that do use traffic engineering tech-
+category, which might be helpful for network operators to estimate             niques regularly, there is something to be said for allowing the
+the impact of dropping potentially suspicious prefixes using the               more specifics. The networks will be more vulnerable to malicious
+RPKI. In collaboration with Akamai Technologies, we calculated the             attacks, but they will still be protected against accidental hijacks,
+portion of all HTTP/HTTPs traffic that came from the IP prefixes               which is considered to be the majority.
+in “other” category between December 1st and December 28th ,                      This balance will continue to be a discussion point between
+2018. Figure 13 shows these daily percentages of the HTTP/HTTPs                operators until practical path verification can be done. Currently
+traffic from the “other” category. We find that a very small fraction          operators may have some information about the plausibility and
+of traffic (less than 0.3%) was exchanged with the “other” prefixes,           validity of BGP paths based on the information through out-of-band
+indicating that Akamai would have lost at most 0.3% of traffic if they         mechanisms such as Peering DB.
+had dropped only the invalid prefixes that are, in all likelihood, not
+announced the authorized origin. However, we also note that this is
+                                                                               7.2                    RPKI and Path Validity
+a non-negligible amount of traffic and that we cannot prove that the
+invalid announcements are hijack attempts. As such, there remains              The RPKI standards also include a specification for BGPsec, which
+a need for reliable techniques for detecting hijacking attempts, so            makes entire BGP paths verifiable. Sadly, however, BGPsec is not
+that this information can be used in concert with RPKI validation              getting deployed [20, 35]. There are several reasons for this; for
+to safely drop unauthorized prefix announcements and their traffic.            example, BGPsec only works when every ASN on a path participates.
+                                                                               Also, it requires that cryptographic signing and validation is done
+                                                                               by BGP speakers, which is currently supported by only a handful
+7 DISCUSSION                                                                   of BGP software such as Quagga [42] and Bird [55]. As a result
+                                                                               the SIDROPS working group [54] in the IETF is now considering a
+7.1 MaxLength                                                                  pragmatic approach and they recently introduced two new drafts [1,
+It has been argued that the use of MaxLength is harmful [24, 26].              2], which seem promising. In a nutshell, the proposal is that any
+The reasoning is, that by allowing more specific announcements                 ASN may publish an exclusive list of ASNs that they can be seen to
+the prefix holder makes itself vulnerable to malicious hijacks where           advertise announcements to as an RPKI signed object. These objects
+the origin ASN is spoofed by prepending it to the BGP path.                    are called Autonomous System Provider Authorizations (ASPAs).
+   However, on the other hand, operators who announce prefixes                 Just like for ROAs, cryptographic validation is done by Relying
+limit their flexibility by not allowing the more specifics. For exam-          Party software, and the routers get a simple list of tuples of verified
+ple, there may be needs for traffic engineering, or rerouting traffic          ASN adjacencies. This allows routers to evaluate adjacencies in
+through DDoS mitigation services that warrant making more spe-                 a path and reject any path where an adjacency is present where
+cific announcements at unpredictable moments. Authorizing such                 the origin ASN authorized some ASN(s), but not the ASN that is
+announcements just in time may not work, as it will take time for              found. Note that this would mitigate the concerns around using
+new ROAs to be published to the repositories and validated, and                the MaxLength attribute in VRPs, as spoofing the origin ASN (by
+routers may not use the VRPs immediately (e.g., some operators                 prepending an ASN to the origin on the BGP path) would become
+build static filter lists every 24 hours).                                     much more detectable if ASPA objects are published.
+
+
+
+
+                                                                         417
+   Furthermore, the ASPA approach also allows for an incremental              REFERENCES
+opt-in adoption path: if no ASPA object is published for an ASN then           [1] A. Azimov, E. Bogomazov, R. Bush, K. Patel, and J. Snijders.
+any adjacency is simply unknown, rather than invalid. Thus, there is               Verification of AS PATH Using the Resource Certificate Public
+a benefit for individual ASNs to protect themselves against spoofing               Key Infrastructure and Autonomous System Provider Autho-
+by publishing objects. Obviously, the more ASes participate the                    rization. IETF, 2018. https://tools.ietf .org/html/draft-azimov-
+better BGP as a whole is protected, but there is no requirement that               sidrops-aspa-verification-01.
+all ASes have to participate before individual ASes start to benefit.          [2] A. Azimov, E. Uskov, R. Bush, K. Patel, J. Snijders, and R. Hous-
+                                                                                   ley. A Profile for Autonomous System Provider Authorization.
+                                                                                   IETF, 2018. https://tools.ietf .org/html/draft-azimov-sidrops-
+8   CONCLUSIONS                                                                    aspa-profile-00.
+In this paper we studied the Resource Public Key Infrastructure                [3] H. Ballani, P. Francis, and X. Zhang. A study of prefix hijacking
+from its inception over 8 years ago to the present day. Over this                  and interception in the internet. SIGCOMM, 2007.
+period RPKI saw very significant deployment to the extent that                 [4] J. Borkenhagen. AT&T/AS 7018 Now Drops Invalid Pre-
+                                                                                   fixes from Peers. https://mailman.nanog.org/pipermail/nanog/
+globally 12.1% of the IPv4 address space is now already covered by
+                                                                                   2019-February/099501.html, 2019.
+Route Origin Authorizations (ROAs). As our analysis showed, in the             [5] K. Butler, T. R. Farley, P. McDaniel, and J. Rexford. A survey
+early days of RPKI deployment the number of misconfigurations                      of BGP security issues and solutions. Proceedings of the IEEE,
+that could lead to BGP announcements being marked as invalid was                   98(1), IEEE, 2010.
+significant. Data quality, however, improved dramatically over the             [6] R. Bush and R. Austein. https://tools.ietf.org/html/rfc8210.
+years to the point where nowadays over 94.3% of announcements                      RFC 8210, IETF, 2017.
+(in the RouteViews dataset) covered by ROAs are valid.                         [7] M. A. Brown. Pakistan hijacks YouTube. 2008. https:
+   This does not mean there are no more misconfigurations. Our                     //dyn.com/blog/pakistan-hijacks-youtube-1/.
+analysis identified four common types of misconfigurations and                 [8] R. D. Boer and J. D. Koning. BGP Origin Validation (RPKI).
+classified how pervasive these misconfigurations are over time.                    Univeristy of Amsterdam, 2013. https://www.os3.nl/ media/
+                                                                                   2012-2013/courses/rp2/p59 report.pdf.
+Identifying misconfigurations also allowed us to filter these out to
+                                                                               [9] BGPStream. https://bgpstream.com/.
+leave what we dubbed “potentially malicious announcements”. At                [10] BGPStream. https://twitter.com/bgpstream/.
+present, this filtering is not accurate enough to be able to use RPKI         [11] A. Cohen, Y. Gilad, A. Herzberg, and M. Schapira. One Hop
+to actually detect malicious announcements.                                        for RPKI, One Giant Leap for BGP Security. HotNets, 2015.
+   Yet detection was never the goal of RPKI; the goal was to be able          [12] D. Cooper, E. Heilman, K. Brogle, L. Reyzin, and S. Goldberg.
+to filter out BGP updates with unauthorized announcements. Our                     On the risk of misbehaving RPKI authorities. HotNets, 2013.
+analysis shows that RPKI is highly successful at this, especially as          [13] H. Chan, D. Dash, A. Perrig, and H. Zhang. Modeling adopt-
+data quality improved dramatically over the years. With this in                    ability of secure BGP protocol. SIGCOMM, 2006.
+mind, we believe RPKI is “ready for the big screen” and operators             [14] J. Cowie. China’s 18-Minute Mystery. 2010. https://dyn.com/
+can start relying on RPKI to drop invalid announcements. And                       blog/chinas-18-minute-mystery/.
+                                                                              [15] B. Cartwright-Cox. Measuring RPKI Adoption via the
+we are not alone in this; a number of prominent operators have
+                                                                                   data-plane. NLNOG Day 2018. https://nlnog.net/static/
+already started dropping invalids (e.g., AT&T [4]). Furthermore,                   nlnogday2018/8 Measuring RPKI ben NLNOG 2018.pdf.
+common practices are emerging in the operator community such                  [16] CAIDA ASOrganizations Dataset. http://www.caida.org/data/
+as guidelines for reaching out to owners of prefixes with broken                   as-organizations/.
+ROAs and temporarily making exceptions to prevent these prefixes              [17] CAIDA ASRelationships Dataset. http://www.caida.org/data/
+from being marked as invalid [45].                                                 as-relationships/.
+Future Work At present, there is no way to detect if an announce-             [18] Cloudflare RPKI Validator Tools and Libraries. https://
+ment is actually malicious with a high degree of confidence. Existing              github.com/cloudflare/cfrpki.
+systems such as BGPStream [40] rely on heuristics to do this. As              [19] C. Dietzel, A. Feldmann, and T. King. Blackholing at IXPs: On
+RPKI coverage expands and data quality keeps improving, invalid                    the Effectiveness of DDoS Mitigation in the Wild. PAM, 2016.
+                                                                              [20] P. Gill, M. Schapira, and S. Goldberg. Let the market drive
+announcements detected by RPKI may become a valuable source of
+                                                                                   deployment: a strategy for transitioning to BGP security. SIG-
+evidence of malicious intent. Observations in this paper may help                  COMM, 2011.
+find a way to do this; as the CDFs in Figure 9 show, for example,             [21] S. Goldberg. Why is It Taking So Long to Secure Internet
+there appears to be evidence that malicious announcements have                     Routing? ACM Queue, 12(8), 2014.
+a much shorter lifetime than actual misconfigurations. This could             [22] S. Goldberg, M. Schapira, P. Hummon, and J. Rexford. How
+help separate the wheat from the chaff when identifying hijacks.                   secure are secure interdomain routing protocols? SIGCOMM,
+                                                                                   2010.
+                                                                              [23] W. George and S. Murphy. https://tools.ietf.org/html/rfc8206.
+ACKNOWLEDGMENTS
+                                                                                   RFC 8206, IETF, 2017.
+We thank the anonymous reviewers and our shepherd, Olaf Maen-                 [24] Y. Gilad, S. Goldberg, K. Sriram, J. Snijders, and B. Maddi-
+nel, for their helpful comments. This research was supported in                    son. The Use of Maxlength in the RPKI draft-ietf-sidrops-
+part by NSF grants CNS-1850465, CNS-1564143, CNS-1901325, CNS-                     rpkimaxlen-02. IETF, 2019.
+1900879, CNS-1563320, CNS-1901090, CNS-1901047 and EC H2020                   [25] Y. Gilad, A. Cohen, A. Herzberg, M. Schapira, and H. Shulman.
+Project CONCORDIA GA 830927, and made possible by Akamai                           Are We There Yet? On RPKI’s Deployment and Security. NDSS,
+Technologies and Cloudflare.                                                       2017.
+
+
+
+
+                                                                        418
+[26] Y. Gilad, O. Sagga, and S. Goldberg. MaxLength Considered                  [53] L. Subramanian, V. Roth, I. Stoica, S. Shenker, and R. H. Katz.
+     Harmful to the RPKI. CoNEXT, 2017.                                              Listen and whisper: security mechanisms for BGP. NSDI, 2003.
+[27] A. Herzberg, M. Hollick, and A. Perrig. Secure Routing for                 [54] Secure Inter-Domain Routing (sidr).                      https:
+     Future Communication Networks (Dagstuhl Seminar 15102).                         //datatracker.ietf .org/wg/sidr/about/.
+     2015. http://drops.dagstuhl.de/opus/volltexte/2015/5267/.                  [55] The BGPsec enabled Bird Routing Daemon.                 http://
+[28] G. Huston, R. Loomans, and G. Michaelson. A Profile for                         www.securerouting.net/tools/bird/.
+     Resource Certificate Repository Structure. RFC 6481, IETF,                 [56] The Forrester Wave: DDoS Mitigation Solutions, Q4
+     2012.                                                                           2017. https://www.cloudflare.com/media/pdf/forrester-wave-
+[29] D. Iamartino. Study and measurements of the RPKI deploy-                        ddos-mitigation-solutions-q4-2017.pdf.
+     ment. Master’s Thesis, Politecnico di Milano, 2015.                        [57] Tim Harrington, APNIC. Personal Communication.
+[30] M. Jonker, A. Sperotto, R. van Rijswijk-Deij, R. Sadre, and A.             [58] M. Wählisch, R. Schmidt, T. C. Schmidt, O. Maennel, S. Uhlig,
+     Pras. Measuring the Adoption of DDoS Protection Services.                       and G. Tyson. RiPKI: The Tragic Story of RPKI Deployment
+     IMC, 2016.                                                                      in the Web Ecosystem. HotNets, 2015.
+[31] A. Lutu, M. Bagnulo, and O. Maennel. The BGP Visibility                    [59] R. White. Architecture and Deployment Considerations for
+     Scanner. INFOCOM, 2013.                                                         Secure Origin BGP (soBGP). IETF, 2006.
+[32] C. Lynn, J. Mikkelson, and K. Seo. Secure BGP (S-BGP). IETF,
+     2003.
+[33] M. Lepinski and S. Kent. An Infrastructure to Support Secure
+     Internet Routing. RFC 6480, IETF, 2012.
+[34] M. Lepinski, S. Kent, and D. Kong. A Profile for Route Origin
+     Authorizations (ROAs). RFC 6482, IETF, 2012.
+[35] R. Lychev, S. Goldberg, and M. Schapira. BGP security in
+     partial deployment. Is the juice worth the squeeze? SIGCOMM,
+     2013.
+[36] C. McArthur and M. S. Guirguis. Stealthy IP Prefix Hijacking:
+     Don’t Bite Off More Than You Can Chew (Poster). SIGCOMM,
+     2008.
+[37] P. Mohapatra, J. Scudder, D. Ward, R. Bush, and R. Austein.
+     BGP Prefix Origin Validation. RFC 6811, IETF, 2013.
+[38] R. Mahajan, D. Wetherall, and T. Anderson. Understanding
+     BGP misconfiguration. SIGCOMM, 2002.
+[39] Meeting of the NRO Executive Council – 101221.
+     https://www.nro.net/meeting-of-the-nro-executive-council-
+     101221/.
+[40] C. Orsini, A. King, D. Giordano, V. Giotsas, and A. Dainotti.
+     BGPStream: A Software Framework for Live and Historical
+     BGP Data Analysis. IMC, 2016.
+[41] R. V. Oliveira, D. Pei, W. Willinger, B. Zhang, and L. Zhang.
+     In search of the elusive ground truth: the internet’s as-level
+     connectivity structure. SIGMETRICS, 2008.
+[42] Quagga Routing Suite. https://www.quagga.net/.
+[43] A. Reuter, R. Bush, I. Cunha, E. Katz-Bassett, T. C. Schmidt, and
+     M. Whlisch. Towards a Rigorous Methodology for Measuring
+     Adoption of RPKI Route Validation and Filtering. CCR, 48(1),
+     2018.
+[44] A. Reuter, M. Wählisch, and T. C. Schmidt. RPKI MIRO: Mon-
+     itoring and Inspection of RPKI Objects (Poster Paper). SIG-
+     COMM, 2015.
+[45] N. Raijer. RPKI for Managers. 5th NLNOG Day, 2018.
+[46] RIPE RPKI Certification Stats.             https://certification-
+     stats.ripe.net.
+[47] RIR Regional Statistics. https://www.nro.net/about/rirs/
+     statistics/.
+[48] RPKI - Validator.         https://github.com/RIPE-NCC/rpki-
+     validator.
+[49] RPKI       Deployment       Monitor.                 https://rpki-
+     monitor.antd.nist.gov.
+[50] RPKI at the DE-CIX route servers. https://www.de-cix.net/
+     en/resources/route-server-guides/rpki.
+[51] RTRlib: The RPKI RTR Client C Library.                    https://
+     rpki.realmv6.org/.
+[52] Routinator. https://nlnetlabs.nl/projects/rpki/routinator/.
+
+
+
+
+                                                                          419
+

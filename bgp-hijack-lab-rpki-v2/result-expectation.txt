@@ -1,0 +1,98 @@
+Exact Hijack:
+
+Here’s what’s going on and what to expect, grouped by phase.
+
+1. Environment setup
+
+sudo bash bootstrap.sh
+
+Installs Docker, Containerlab, required images (FRR + Routinator).
+Expect lots of apt output, then “[OK] Docker installed”, “[OK] Containerlab installed”, “[OK] Images ready”.
+sudo containerlab deploy -t topology.yaml
+
+Starts the 5 containers (r1–r4 + rpki) and wires links.
+Expect a summary table with all nodes in running / Up state.
+
+2. Baseline & validator health
+
+sudo bash scripts/verify.sh
+
+Checks that BGP is converged with no attack, on all routers.
+On R1, expect a path to 13.0.0.0/24 via AS path 200 300 only. No AS400.
+sudo bash scripts/validator_status.sh
+
+Checks the Routinator container and R1’s RPKI settings.
+Expected when healthy:
+Validator line: clab-bgp-hijack-rpki-rpki   Up ...
+R1 cache line: rpki tcp cache 172.20.20.2 3323 pref 1 (connected)
+Route-map: route-map RPKI_IN ... with some Invoked counters.
+
+3. “Plumbing” debug tools (you used these while fixing things)
+
+docker ps | grep bgp-hijack-rpki-rpki
+
+Shows if the validator container is restarting or Up.
+You want Up ... nlnetlabs/routinator:latest.
+docker logs clab-bgp-hijack-rpki-rpki --tail=...
+
+Shows why Routinator was crashing (bad flags, etc.).
+Now you should only see a line like “Using config file /home/routinator/.routinator.conf.”, no errors.
+
+4. Attack without any RPKI defense (to show hijack success)
+
+sudo bash scripts/start_exact_hijack.sh
+
+R4 (AS400) starts announcing 13.0.0.0/24 — same as the victim.
+Script prints R1’s BGP and routing table at the end.
+Expected on R1:
+Two paths to 13.0.0.0/24: 400 and 200 300.
+Best path is 400.
+Routing table next-hop for 13.0.0.0/24 is R4 (via 10.14.0.2).
+sudo bash scripts/stop_attack.sh
+
+Withdraws the attack announcement from R4.
+After it, R1 should go back to the single 200 300 path.
+
+5. Enabling RPKI-based mitigation
+
+sudo bash scripts/apply_mitigation.sh r1
+
+On R1, does three things:
+Configures rpki cache 172.20.20.2 3323 preference 1.
+Installs route-map RPKI_IN with deny match rpki invalid, then permit.
+Applies route-map RPKI_IN in to neighbor 10.14.0.2 (the attacker).
+Expect vtysh transcript ending with [OK] RPKI policy applied on R1 only.
+sudo bash scripts/apply_mitigation.sh all
+
+Same as above, but also configures R2 to validate, showing partial vs full deployment behavior.
+sudo bash scripts/validator_status.sh (after applying mitigation)
+
+Now should show:
+“Connected to group 1” and the cache line.
+Route-map RPKI_IN with Invoked counters > 0 in BGP.
+
+6. Observing the RPKI effect
+
+With mitigation active:
+
+sudo bash scripts/start_exact_hijack.sh
+
+Re-launch the same hijack, but now R1 should consult RPKI.
+sudo docker exec clab-bgp-hijack-rpki-r1 vtysh -c "show bgp ipv4 unicast 13.0.0.0/24"
+
+This is the key check.
+Ideal “v2” demonstration result:
+Only the 200 300 path is present and installed as best.
+No active path via 400 (either missing or marked invalid and not best).
+RPKI state for the attacker path should be invalid if SLURM/VRPs are fully applied; if it still shows not found, RPKI is wired but not yet enforcing policy data.
+
+7. Cleaning up
+
+sudo bash scripts/remove_mitigation.sh
+
+Removes the RPKI_IN route-map and RPKI cache config from R1 (and R2 if you used all).
+After this, attacks will once again succeed.
+sudo containerlab destroy -t topology.yaml
+
+Tears down the entire lab and removes the containers.
+If you tell me which part you’re planning to demo (e.g., “RPKI completely blocks AS400 at R1” vs “partial deployment r1 vs all”), I can give you a minimal 6–8 command sequence with the exact outputs you should screenshot or write down.

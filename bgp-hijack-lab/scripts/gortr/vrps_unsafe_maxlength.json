@@ -1,0 +1,33 @@
+{
+  "metadata": {
+    "counts": 4,
+    "generated": 1700000000,
+    "valid": 9999999999
+  },
+  "roas": [
+    {
+      "prefix": "11.0.0.0/24",
+      "maxLength": 24,
+      "asn": "AS100",
+      "ta": "local-ta"
+    },
+    {
+      "prefix": "12.0.0.0/24",
+      "maxLength": 24,
+      "asn": "AS200",
+      "ta": "local-ta"
+    },
+    {
+      "prefix": "13.0.0.0/24",
+      "maxLength": 25,
+      "asn": "AS300",
+      "ta": "local-ta"
+    },
+    {
+      "prefix": "14.0.0.0/24",
+      "maxLength": 24,
+      "asn": "AS400",
+      "ta": "local-ta"
+    }
+  ]
+}

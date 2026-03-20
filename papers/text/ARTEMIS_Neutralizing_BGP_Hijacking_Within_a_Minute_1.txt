@@ -1,0 +1,1123 @@
+IEEE/ACM TRANSACTIONS ON NETWORKING, VOL. 26, NO. 6, DECEMBER 2018                                                                                         2471
+
+
+
+
+                 ARTEMIS: Neutralizing BGP Hijacking
+                          Within a Minute
+                      Pavlos Sermpezis , Vasileios Kotronis, Petros Gigis, Xenofontas Dimitropoulos,
+                                         Danilo Cicalese, Alistair King, and Alberto Dainotti
+
+   Abstract— Border gateway protocol (BGP) prefix hijacking is                   by router misconfiguration [2], [3] or malicious attacks [4]–[6].
+a critical threat to Internet organizations and users. Despite                   Events with significant impact are frequently observed [6]–[9],
+the availability of several defense approaches (ranging from                     highlighting – despite the severity of such Internet
+RPKI to popular third-party services), none of them solves the
+problem adequately in practice. In fact, they suffer from: (i) lack              infrastructural vulnerability – the ineffectiveness of existing
+of detection comprehensiveness, allowing sophisticated attackers                 countermeasures.
+to evade detection; (ii) limited accuracy, especially in the case                   Currently, networks rely on practical reactive mechanisms
+of third-party detection; (iii) delayed verification and mitigation              as a defense against prefix hijacking, since proposed proactive
+of incidents, reaching up to days; and (iv) lack of privacy and of               mechanisms [10]–[14] (e.g., RPKI) are fully efficient only
+flexibility in post-hijack counteractions, on the side of network
+operators. In this paper, we propose ARTEMIS, a defense                          when globally deployed, and operators are reluctant to deploy
+approach (a) based on accurate and fast detection operated by the                them due to technical and financial costs [15]–[18]. Defending
+autonomous system itself, leveraging the pervasiveness of publicly               against hijacking reactively consists of two steps: detection
+available BGP monitoring services and their recent shift towards                 and mitigation. Detection is mainly provided by third-party
+real-time streaming and thus (b) enabling flexible and fast                      services (e.g., [19]) that, based on routing information such
+mitigation of hijacking events. Compared to the previous work,
+our approach combines characteristics desirable to network                       as traceroutes [20] or BGP updates [19], notify networks
+operators, such as comprehensiveness, accuracy, speed, privacy,                  about suspicious events involving their prefixes. The affected
+and flexibility. Finally, we show through real-world experiments                 networks then proceed to mitigate the event, e.g., by announc-
+that with the ARTEMIS approach, prefix hijacking can be                          ing more specific prefixes, or contacting other ASes to filter
+neutralized within a minute.                                                     announcements.
+   Index Terms— Border gateway protocol (BGP) prefix hijack-                        However, due to a mix of technological and practical
+ing, Internet routing, Internet measurements, network security.                  deployability issues, current reactive approaches are largely
+                                                                                 inadequate. In this paper, we address these issues by proposing
+                        I. I NTRODUCTION
+                                                                                 ARTEMIS (Automatic and Real-Time dEtection and MItiga-
+A     UTONOMOUS Systems (ASes) use the Border Gateway
+      Protocol (BGP) [1] to advertise their IP prefixes and
+establish inter-domain routes in the Internet. BGP is a dis-
+                                                                                 tion System), a self-operated and unified detection and mitiga-
+                                                                                 tion approach based on control-plane monitoring. Specifically,
+                                                                                 the state of the art suffers from 4 main problems:
+tributed protocol, lacking authentication of routes. As a result,
+                                                                                 • Evasion. None of the detection approaches in literature is
+an AS is able to advertise illegitimate routes for IP prefixes
+                                                                                    capable of detecting all attack configurations (nor can they
+it does not own. These illegitimate advertisements propagate
+                                                                                    be easily combined), thus allowing sophisticated attackers
+and “pollute” many ASes, or even the entire Internet, affecting
+                                                                                    to evade them. We propose a modular taxonomy describing
+availability, integrity, and confidentiality of communications.
+                                                                                    all variations of attack scenarios and we use it to care-
+This phenomenon, called BGP prefix hijacking, can be caused
+                                                                                    fully analyze detection comprehensiveness of related work.
+  Manuscript received December 24, 2017; revised June 20, 2018 and                  ARTEMIS significantly overcomes limitations of the state
+August 10, 2018; accepted August 10, 2018; approved by IEEE/ACM                     of the art by covering all attack configurations.
+T RANSACTIONS ON N ETWORKING Editor T. He. Date of publication
+October 4, 2018; date of current version December 14, 2018. This work was        • Accuracy. Legitimate changes in the routing policies of
+supported in part by the European Research Council under Grant 338402,              a network (e.g., announcing a sub-prefix for traffic engi-
+in part by the National Science Foundation under Grant CNS-1423659,                 neering or establishing a new peering connection), could be
+in part by the Department of Homeland Security Science and Technology
+Directorate, Cyber Security Division, under Contract HHSP233201600012C,             considered suspicious events by the majority of third-party
+and in part by the Air Force Research Laboratory under Grant FA8750-18-2-           detection systems [20]–[24]. To avoid this, operators would
+0049. (Corresponding author: Pavlos Sermpezis.)                                     need to timely inform third parties about every routing deci-
+  P. Sermpezis, V. Kotronis, and P. Gigis are with ICS-FORTH,
+GR-700 13 Heraklion, Greece (e-mail: sermpezis.pavlos@gmail.com).                   sion they make and share private information. On the other
+  X. Dimitropoulos is with ICS-FORTH, GR-700 13 Heraklion, Greece, and              hand, adopting a less strict policy to compensate for the
+also with the Computer Science Department, University of Crete, 70013               lack of updated information and reduce false positives (FP),
+Heraklion, Greece.
+  D. Cicalese is with CAIDA, UC San Diego, La Jolla, CA 92093 USA, and              incurs the danger of neglecting real hijacking events (false
+also with the Network and Computer Science Department (INFRES), Telecom             negatives – FN). We designed ARTEMIS detection to be run
+ParisTech, 75013 Paris, France.                                                     directly by the network operator without relying on a third
+  A. King and A. Dainotti are with CAIDA, UC San Diego, La Jolla,
+CA 92093 USA.                                                                       party, thus leveraging fully and constantly (and potentially
+  Digital Object Identifier 10.1109/TNET.2018.2869798                               automatically) up-to-date information that enables 0% FP
+                       1063-6692 © 2018 IEEE. Personal use is permitted, but republication/redistribution requires IEEE permission.
+                            See http://www.ieee.org/publications_standards/publications/rights/index.html for more information.
+
+      Authorized licensed use limited to: University of New Brunswick. Downloaded on March 08,2026 at 02:38:18 UTC from IEEE Xplore. Restrictions apply.
+2472                                                                           IEEE/ACM TRANSACTIONS ON NETWORKING, VOL. 26, NO. 6, DECEMBER 2018
+
+
+
+                                                                           TABLE I
+       C OMPARISON OF BGP P REFIX H IJACKING D ETECTION S YSTEMS /S ERVICES W. R . T. A BILITY TO D ETECT D IFFERENT C LASSES OF ATTACKS
+
+
+
+
+   and FN for most of the attack scenarios and a configurable                     decisions through simulations and analysis of real-world
+   FP–FN trade-off otherwise.                                                     Internet control-plane measurements (§ III,§ IV,§ V,§ VI).
+• Speed. A side effect of the inaccuracy of third-party                           Furthermore, the ARTEMIS approach is immediately deploy-
+   approaches is the need for manual verification of alerts,                      able today: we build a prototype system implementing our
+   which inevitably causes slow mitigation of malicious events                    approach, and we show its effectiveness through experiments
+   (e.g., hours or days). Few minutes of diverted traffic                         on the real Internet (§ VII). Finally, we provide an exten-
+   can cause large financial losses due to service unavail-                       sive background on the state of the art, both in terms of
+   ability or security breaches. On the contrary, ARTEMIS                         practical experience (by conducting a survey among opera-
+   is a fully automated solution integrating detection and                        tors and referring to reported events; § VIII-A) and related
+   mitigation, allowing an AS to quickly neutralize attacks.                      literature (§ VIII-B).
+   We conduct real experiments in the Internet demonstrating
+   that ARTEMIS can detect attacks within seconds and neu-                                II. T HREAT M ODEL AND ATTACK TAXONOMY
+   tralize them within a minute, i.e., orders of magnitude faster                    BGP prefix hijacking can be (and has been) performed
+   than current practices.                                                        in various ways. Different hijacking attacks have different
+• Privacy and Flexibility. One of the issues that impedes the
+                                                                                  implications (e.g., impact, § IV), and require different detec-
+   adoption of third-party detection is privacy, e.g., ISPs usually               tion or mitigation methods (§ V, § VI). In this section,
+   do not disclose their peering policies. Similarly, operators                   we define a taxonomy of BGP hijacks to which we refer
+   are sometimes reluctant to adopt mitigation services requir-                   throughout the paper, and that we use to compare existing
+   ing other organizations to announce their prefixes or tunnel                   BGP hijacking approaches.
+   their traffic. ARTEMIS offers full privacy for detection                          We consider a common and general hijacking threat model
+   and the option to achieve self-operated mitigation. Another                    (e.g., similar to [27]), where a hijacker controls a single
+   factor affecting willingness to externalize mitigation is cost.                AS and its edge routers, and has full control of the control
+   Trade-offs between cost, privacy, and risk may be evaluated                    plane and data plane within its own AS. The attacker can
+   differently by the same organization for distinct prefixes they                perform a hijack by arbitrarily manipulating the content of
+   own. Due to the availability of local private information and                  the BGP messages (prefix and/or AS-path) that it sends to its
+   its fully automated approach, ARTEMIS offers the flexibility                   neighboring ASes (control plane) and the traffic that crosses
+   to customize mitigation (e.g., self-operated or third-party-                   its network (data plane), but has otherwise no control over
+   assisted) per prefix and per attack class.                                     BGP messages and traffic exchanged between other ASes.1
+   The ARTEMIS approach relies on two key observations:                              Our taxonomy has 3 dimensions, characterizing how
+(i) today’s public BGP monitoring infrastructure (such as                         the attacker can operate a hijack: (i) the affected prefix,
+RouteViews [25] and RIPE RIS [26]) is much more advanced                          (ii) the manipulation of the AS-PATH in the BGP messages,
+than when previous solutions for BGP hijacking detection                          and (iii) how the (hijacked) data-plane traffic is treated. Any
+were proposed, making it a valuable resource – available to                       attack can be represented by a point in this three-dimensional
+anybody – for comprehensive live monitoring of the Internet                       space. Table I presents all possible attack combinations (three
+control plane; (ii) shifting from a third-party perspective to a                  leftmost columns); “*” denote wildcarded fields.
+self-operated approach enables us to effectively address the                         In the following, we illustrate our taxonomy in detail. For
+long-standing and persistent issues undermining the state of                      demonstration we assume that AS1 owns and legitimately
+the art in BGP hijacking defense approaches.                                      announces the prefix 10.0.0.0/23, and AS2 is the hijacking AS.
+   In this work, we first define our threat model and propose                     We denote a BGP message with two fields: its AS-PATH and
+a novel attack taxonomy used throughout the paper (§ II).                         announced prefix. For example, {ASx, ASy, AS1 – 10.0.0.0/23}
+We investigate the visibility and impact of different hijacking
+types in § IV, and then describe the ARTEMIS detection (§ V)                        1 While other types of attacks on BGP operations are possible [28], [29],
+and mitigation (§ VI) approach. We evaluate our design                            they are orthogonal to our study, which focuses on BGP prefix hijacking.
+       Authorized licensed use limited to: University of New Brunswick. Downloaded on March 08,2026 at 02:38:18 UTC from IEEE Xplore. Restrictions apply.
+SERMPEZIS et al.: ARTEMIS: NEUTRALIZING BGP HIJACKING WITHIN A MINUTE                                                                                      2473
+
+
+
+is a BGP announcement for prefix 10.0.0.0/23, with AS-PATH                       Telecom [3], led to an accidental large-scale Type-0 exact-
+{ASx, ASy, AS1}, originated by the legitimate AS (AS1).                          prefix hijack, with blackholing on the data plane.
+                                                                                 High Impact Attack: The hijack is intentional, with wide-
+A. Classification by Announced AS-Path
+                                                                                 spread impact; e.g., Pakistan Telecom engaged in a Type-0
+Origin-AS (or Type-0) Hijacking: The hijacker AS2                                sub-prefix hijack, blackholing YouTube’s services for approx-
+announces – as its own – a prefix that it is not authorized to                   imately 2 hours worldwide [33].
+originate, e.g., {AS2 – 10.0.0.0/23}. This is the most commonly                  Targeted, Stealthy Attack: The hijacking AS launches a
+observed hijack type.                                                            very targeted attack, attempting to intercept traffic (man-in-the-
+Type-N Hijacking (N ≥ 1): The hijacker AS2 deliberately                          middle), while remaining under the radar on the control plane
+announces an illegitimate path for a prefix it does not own. The                 (Type-N or Type-U attack); e.g., a Russian network hijacked
+announced path contains the ASN of the victim (first AS in the                   traffic destined to Visa and Mastercard in 2017 [7].
+path) and hijacker (last AS in the path), e.g., {AS2, ASx, ASy,                  The “Best” Attack: Motivations behind hijacks differ; there is
+AS1 – 10.0.0.0/23}, while the sequence of ASes in the path is                    no one “best” attack type that is always preferred. For example,
+not a valid route, e.g., AS2 is not an actual neighbor of ASx.                   an attacker may resort to a Type-N (N > 0) hijack to (i) evade
+In our taxonomy, the position of the rightmost fake link in                      simple detection systems currently used by operators or bypass
+the forged announcement determines the type. E.g., {AS2,                         RPKI ROV, or (ii) delay manual investigation and recovery
+AS1 – 10.0.0.0/23} is a Type-1 hijacking, {AS2, ASy,                             from the malicious event; in contrast to origin AS validation,
+AS1 – 10.0.0.0/23} is a Type-2 hijacking, etc.                                   inferring that a link in an AS-path is fake is a hard challenge.
+Type-U: The hijacker leaves the legitimate AS-PATH unal-                         Moreover, while a sub-prefix Type-U hijack can be very
+tered (but may alter the announced prefix [31]).2                                effective, it might be neither possible nor ideal in some cases;
+B. Classification by Affected Prefix                                             e.g., the upstream providers of a hijacker might be configured
+                                                                                 to not accept routes for prefixes not owned by their customers.
+Exact Prefix Hijacking: The hijacker announces a path for
+exactly the same prefix announced by the legitimate AS. Since                                         III. DATASETS AND T OOLS
+shortest AS-paths are typically preferred, only a part of the                      We present the monitoring services used by
+Internet that is close to the hijacker (e.g., in terms of AS
+                                                                                 ARTEMIS (§ III-A), and the simulation methodology
+hops) switches to routes towards the hijacker. The examples                      we use throughout the paper to evaluate different aspects of
+presented above (§ II-A) are exact prefix hijacks.
+                                                                                 BGP hijacks (§ III-B).
+Sub-Prefix Hijacking: The hijacker AS2 announces a more
+specific prefix, i.e., a sub-prefix of the prefix of the legit-                  A. Control-Plane Monitoring
+imate AS. For example, AS2 announces a path {AS2 –                                  We study BGP prefix hijacking and evaluate ARTEMIS
+10.0.0.0/24} or {AS2, ASx, ASy, AS1 – 10.0.0.0/24}. Since in                     using publicly available services that offer control-plane mon-
+BGP more specific prefixes are preferred, the entire Internet                    itoring from multiple monitors worldwide. We define as mon-
+routes traffic towards the hijacker to reach the announced                       itors the ASes that peer through their BGP routers with the
+sub-prefix.                                                                      infrastructure of the monitoring services, and provide BGP
+Squatting: The hijacker AS announces a prefix owned but                          feeds (i.e., BGP updates and RIBs). We consider the following
+not (currently) announced by the owner AS [32].                                  monitoring services and tools.
+C. Classification by Data-Plane Traffic Manipulation                                BGPmon [34] (from Colorado State University)3 provides
+                                                                                 live BGP feeds from several BGP routers of (a) the Route-
+   The effect of a hijack is to redirect traffic for the affected
+                                                                                 Views [25] sites, and (b) a few dozens of peers worldwide.
+prefix to/through the network of the hijacker AS. This attracted
+                                                                                    RIPE RIS [35]. RIPE’s Routing Information System (RIS)
+traffic can be (i) dropped (blackholing, BH), (ii) manipulated
+                                                                                 has 21 route collectors (RCs) distributed worldwide, collect-
+or eavesdropped and then sent on to the victim AS1 (man-in-
+                                                                                 ing BGP updates from around 300 peering ASes. Currently,
+the-middle, MM), or (iii) used in an impersonation of the vic-
+                                                                                 4 RCs provide live BGP feeds (from approx. 60 moni-
+tim’s service(s) by responding to the senders (imposture, IM).
+                                                                                 tors) [26], while data from all RCs can be accessed (with a
+While BH attacks might be easily noticed in the data plane
+                                                                                 delay of a few minutes) through RIPEstat [36] or CAIDA’s
+(since a service is interrupted), MM or IM attacks can be
+                                                                                 BGPStream [37], [38] framework. However, RIPE RIS is
+invisible to the victim AS or the other involved ASes.
+                                                                                 in the process of upgrading all its RCs towards providing
+D. Example Hijack Scenarios & Motivations                                        real-time BGP feeds [39].
+   The following examples illustrate different hijack scenar-                       RouteViews [25] provides control-plane information col-
+ios, their underlying motivation, and how they are classified                    lected from 19 RCs that are connected to nearly 200 ASes
+according to the presented taxonomy.                                             worldwide. A subset of the RouteViews RCs provide live BGP
+Human Error: The hijack is the result of a routing miscon-                       feeds (through BGPmon), while all data can be accessed with a
+figuration; e.g., the leakage of a full BGP table from China                     delay of approx. 20min (using CAIDA’s BGPStream). Several
+  2 If the announced prefix is also left unaltered (i.e., no path or prefix       3 BGPmon is also the name of a commercial network monitoring service.
+manipulation; see § II-B), then the event is not a hijack (no misuse of BGP)     Throughout this paper, BGPmon refers to the (free) service provided by
+but a traffic manipulation attempt, out of the scope of this paper.              Colorado State University, unless stated otherwise.
+
+      Authorized licensed use limited to: University of New Brunswick. Downloaded on March 08,2026 at 02:38:18 UTC from IEEE Xplore. Restrictions apply.
+2474                                                                            IEEE/ACM TRANSACTIONS ON NETWORKING, VOL. 26, NO. 6, DECEMBER 2018
+
+
+
+                                  TABLE II
+                 C ONTROL -P LANE M ONITORING S ERVICES
+
+
+
+
+RouteViews monitors have started experimentally deploying
+live BMP [40] feeds [41] accessible through BGPStream; it is                      Fig. 1. Impact of different hijack types: (a) CDFs, and (b) mean (continuous
+thus foreseeable that in the near future more live BGP feeds                      lines) and median (dashed lines) values of the fraction of polluted ASes
+will be publicly available.                                                       over 1000 simulations for different hijack types. Hijacking events of all types
+                                                                                  can have a large impact, with smaller types being on average more impactful.
+   Our ARTEMIS prototype employs live BGP feeds such
+as the BGPmon and RIPE RIS streaming services. However,                           to observe all the events with significant impact. These results
+to understand the effect of adding more data sources, we per-                     help us design our detection approach (§ V) and inform our
+form additional simulations and real data analysis including                      flexible mitigation approach (§ VI).
+BGP feeds from all the monitors of RIPE RIS and RouteViews
+services, which we access through the API of BGPStream.4                          A. Impact of Hijacks on the Control Plane
+A summary of the monitoring services that we use in this                             An AS receiving routes from two different neighboring
+paper is given in Table II.                                                       ASes for the same prefix, selects one of them to route its
+                                                                                  traffic. This path selection is based on peering policies, local
+B. Simulation Methodology
+                                                                                  preferences, and the AS-PATH lengths of the received routes.
+   In this paper, through extensive simulations, we evaluate                      As a result, the impact of an exact prefix hijacking event on the
+the impact of different types of hijacks, the performance                         control plane depends on such routing selections. To under-
+of the monitoring services, and the efficiency of various                         stand how the impact of these events can vary, we perform
+mitigation methods. To simulate the Internet routing system,                      simulations on the AS-level topology of the Internet. For each
+we use a largely adopted methodology [42]–[45]: we build the                      scenario, we simulate 1000 runs with varying {legitimate-AS,
+Internet topology graph from a large experimentally collected                     hijacker-AS} pairs.5 We refer to an AS as polluted if it selects
+dataset [46], use classic frameworks for inferring routing                        a path that contains the ASN of the hijacker. To quantify the
+policies on existing links [47], and simulate BGP message                         impact of a hijack, we calculate the fraction of ASes polluted
+exchanges between connected ASes.                                                 by the event, excluding those ASes that were already polluted
+Building the Internet Topology Graph: We use CAIDA’s                              before the hijack (e.g., customers of the hijacker AS that
+AS-relationship dataset [46], which is collected based on                         always route traffic through it). We limit the analysis in this
+the methodology of [48] and enriched with many extra                              section to exact prefix hijacking, since sub-prefix hijacking
+peering (p2p) links [49]. The dataset contains a list of AS                       pollutes the entire Internet (§ II-B).
+pairs with a peering link, which is annotated based on their                      Hijacking events of smaller AS-path type tend to have
+relationship as c2p (customer to provider) or p2p (peer to                        larger impact. Fig. 1(a) shows the Cumulative Distribution
+peer). In this topology, we represent the monitors of § III-A                     Function (CDF) of the percentage of polluted ASes in our
+as AS nodes using their associated ASNs.                                          simulations. The farther the position of the hijacker in the
+Simulating Routing Policies: When an AS learns a new route                        announced path (i.e., as the hijack type increases from 0 to 4),
+for a prefix (or, announces a new prefix), it updates its routing                 the lower the probability that a hijack can affect a large
+table and, if required, sends BGP updates to its neighbors. The                   fraction of the Internet. For hijack types larger than Type-2,
+update and export processes are determined by its routing poli-                   in the majority of the cases (> 50%) their impact is very
+cies. In our simulator, and similarly to [42]–[45], we select the                 limited or negligible (e.g., 4% and 1% for Type-3 and Type-4,
+routing policies based on the classic Gao-Rexford conditions                      respectively).
+that guarantee global BGP convergence and stability [47].                         All types of hijacks can have a large impact. Comparing
+                    IV. I MPACT AND V ISIBILITY                                   the mean to the median values in Fig. 1(b) (blue curves;
+                                                                                  circle markers) highlights that even with Type-4 hijacks
+   In this section, through simulation, we first study the poten-
+                                                                                  there are events with a large (i.e., > 80%, see Fig. 1(a))
+tial impact of different hijacking types on the control plane,
+                                                                                  impact. We verified that these corner cases happen not
+i.e., their ability to pollute the routing tables of other ASes.
+                                                                                  because the hijacker AS is well-connected, but because of
+We then evaluate the potential of BGP monitoring services
+                                                                                  the reciprocal location of the hijacker and victim ASes in the
+(e.g., RouteViews) to observe these events. Our simulations
+                                                                                  AS-graph and the respective relationships with their neighbors.
+suggest that the current BGP monitoring infrastructure is able
+                                                                                  Hence, network connectivity metrics alone [50], cannot always
+  4 In our simulations we consider only the full-feed monitors [37] of RIPE
+RIS and RouteViews that are more reliable: we include only full-feed monitors       5 1000 simulation runs provide significant statistical accuracy (i.e., small
+that consistently provided data during March 2017.                                confidence intervals for mean/median values) in all our scenarios.
+
+       Authorized licensed use limited to: University of New Brunswick. Downloaded on March 08,2026 at 02:38:18 UTC from IEEE Xplore. Restrictions apply.
+SERMPEZIS et al.: ARTEMIS: NEUTRALIZING BGP HIJACKING WITHIN A MINUTE                                                                                        2475
+
+
+
+
+Fig. 2. Visibility of different hijack types: CCDFs of the number of monitors
+that observe an illegitimate route over 1000 simulations for different types,
+using (a) all and (b) streaming monitoring services. Hijacking events of          Fig. 3. Fraction (y-axis) of the hijacking events, grouped by impact (x-axis),
+smaller type are visible with higher probability and to more monitors.            that are invisible to (a) all monitoring services, and (b) streaming monitoring
+                                                                                  services, for different hijack types (denoted as bars of different colors). Note
+                                 TABLE III                                        the differences in the (a)/(b) x-axis. Existing monitoring infrastructure can
+P ERCENTAGE OF I NVISIBLE H IJACKING E VENTS . H IJACKS OF H IGHER                always observe hijacking events of significant impact.
+  T YPES T END TO P OLLUTE A S MALLER P ORTION OF THE I NTERNET.
+             C OMBINING M ONITORING S ERVICES A LWAYS                             and 4 have a higher probability to remain unnoticed, e.g., more
+                       I NCREASES V ISIBILITY
+                                                                                  than 20% of Type-3 hijacks are not visible by any service.
+                                                                                  We also find that the combination of different services always
+                                                                                  leads to increased visibility.
+                                                                                  Hijacking events (of every type) with significant impact
+                                                                                  are always visible to monitoring services. Fig. 3 shows
+                                                                                  the fraction of hijacking events, grouped by their impact,
+                                                                                  that are invisible to monitoring services. Hijacking events that
+                                                                                  pollute more than 2% of the Internet are –in our simulations–
+                                                                                  always visible to the monitoring services (Fig. 3(a)), and the
+(i.e., for all attack types) indicate the potential impact (in terms
+                                                                                  vast majority (e.g., more than 85% type-0 hijacks) of those
+of Internet pollution) of an attacking AS. Since it is difficult
+                                                                                  with impact between 1% and 2% are also observed. The
+to identify the ASes6 that are capable of launching impactful
+                                                                                  visibility is low only for events with impact smaller than 1%
+hijacking attacks (e.g., using the methodology of [52] would
+                                                                                  when considering all monitors. In total, the mean (median)
+require to consider all possible hijacker ASes and attack types),
+                                                                                  impact of invisible events is less than 0.2% (0.1%) as shown
+an operator should be able to defend their networks against
+                                                                                  in Fig. 1(b). These results suggest that existing infrastructure
+every type of hijacking event.
+                                                                                  has already a great potential to enable live detection of signif-
+B. Visibility of Hijacks on the Control Plane                                     icant hijacking events. We find instead that current streaming
+                                                                                  services have full visibility only for events with impact greater
+   Here we study to which extent different types of hijacks
+                                                                                  than 30% (Fig. 3(b)), highlighting the potential benefit from
+are visible by monitors of publicly accessible BGP mon-
+                                                                                  RIPE RIS and RouteViews accelerating their transition to live
+itoring infrastructure. Detecting a hijacking event through
+                                                                                  streaming [39], [53].
+control-plane monitoring requires the illegitimate path to
+                                                                                     These findings deliver a promising message for using public
+propagate to at least one monitor. Moreover, the more
+                                                                                  BGP monitoring infrastructure to detect hijacks: while a
+monitors receive such a route, the faster and more robust
+                                                                                  hijacker can employ several means to achieve a stealthy hijack
+(e.g., to monitor failures) the detection of a hijack is.
+                                                                                  (e.g., launch Type-N attacks of large N , or append BGP
+Hijacking events of smaller AS-path type are more visible.                        communities to limit its visibility within specific regions),
+Fig. 2 shows the distribution of the number of monitors, from                     the attack can only be invisible at the cost of limited impact.
+(a) all monitoring services, and from (b) only RIPE RIS and
+BGPmon streaming services, that receive an illegitimate path.                                       V. D ETECTION M ETHODOLOGY
+As expected, hijacking events of smaller type are visible with
+                                                                                  A. Overview
+higher probability and to more monitors (on average), since
+their impact on the Internet is larger (see Fig. 1(b)). Table III                    ARTEMIS is run locally by a network and enables a
+gives the percentage of hijacking events that are invisible to the                self-operated (i.e., not involving third parties) detection of
+different services (i.e., they do not pollute any of the monitors                 hijacking events for its own prefixes. ARTEMIS (a) uses a
+in our simulations). We can see that almost all origin-AS                         local configuration file with information about the prefixes
+hijacks (Type-0) are visible, whereas hijacks of types 1, 2, 3,                   owned by the network, and (b) receives as input the stream of
+                                                                                  BGP updates from the publicly available monitoring services
+  6 Ballani et al. [51] use simulation to estimate the probability of impact of   and the local routers of the network that operates it. Comparing
+hijacking attacks against different ASes in the AS graph. They show that          the prefix and AS-PATH fields in the BGP updates with the
+besides ASes high in the routing hierarchy, even small ASes can hijack and
+intercept traffic from a non-negligible fraction of ASes, making identification   information in the local configuration file, ARTEMIS can
+of attackers challenging.                                                         detect any class of hijacking event, and generate alerts.
+
+      Authorized licensed use limited to: University of New Brunswick. Downloaded on March 08,2026 at 02:38:18 UTC from IEEE Xplore. Restrictions apply.
+2476                                                                           IEEE/ACM TRANSACTIONS ON NETWORKING, VOL. 26, NO. 6, DECEMBER 2018
+
+
+
+                                                                          TABLE IV
+                                     D ETECTION OF THE D IFFERENT BGP P REFIX H IJACKING ATTACKS BY ARTEMIS
+
+
+
+
+   The local configuration file is populated by the network                       avoid announcing an illegitimate AS-PATH (and can further
+operator, and includes lists of owned ASNs and prefixes,                          increase stealthiness by carrying the attack on the data plane
+ASNs of neighboring ASes, and routing policies (e.g., “pre-                       as a Man-in-the-Middle [31]). In the following sections we
+fix p is announced with origin ASO to neighbors ASn1                              illustrate how ARTEMIS detects the remaining classes of
+and ASn2 ”). For ease of use, the local configuration file                        attacks when exact-prefix hijacking is involved instead.
+can be populated (and updated) automatically; for instance,                       ARTEMIS returns 0 false positives and 0 false negatives
+ARTEMIS can communicate with the BGP routers of the                               for all BGP squatting events. Checking against the operator’s
+network (with iBGP, ExaBGP [54], or route reflectors).                            list of actually announced prefixes, has the added benefit of
+False Positives (FP) and Negatives (FN): Table IV summa-                          detecting BGP squatting as well; a technique commonly used
+rizes the FP–FN performance of the different detection criteria                   by spammers, in which a (malicious) AS announces space
+used in our approach for each attack scenario (discussed                          owned but not announced by another AS [32], [55].
+in § V-B, § V-C, § V-D). In the default configuration, our
+approach does not introduce FN for any attack scenario. The                       C. Detecting Type-0/1 Exact Prefix Hijacks
+only possible FN are the events not visible by the monitoring                        The network operator provides also in the local configura-
+infrastructure (§ IV-B), which have very limited impact on                        tion file the following information per prefix:
+the control plane (Fig. 1(b) and Fig. 3). We generate potential                     • Origin ASN(s): the ASNs authorized to originate the prefix.
+FP (at a very low rate) only for exact-prefix hijacking events                      • Neighbor ASN(s): the ASNs with which there are direct
+of Type-N, N ≥ 2; however, for the detection of this class                             BGP sessions established, where the prefix is announced.
+of events, ARTEMIS optionally allows the operator to trade                        For every BGP update it receives from the monitors,
+(i) speed for increased accuracy, and (ii) potential FN related                   ARTEMIS extracts the AS-PATH field, and compares the
+to events with negligible visible impact (e.g., seen by only                      announced prefix, as well as the first and second ASNs in
+1 monitor) for less FP.                                                           the AS-PATH, with the {prefix, origin ASN, neighbor ASN}
+                                                                                  information in the local file. If the AS-PATH does not match
+B. Detecting Sub-Prefix Hijacks & Squatting                                       the information in the local file, a hijack alert is generated.
+   Sub-prefix hijacks are the most dangerous, since they can                      ARTEMIS detects all Type-0 and Type-1 hijacks that are
+pollute the entire Internet due to the longest prefix matching                    visible to the monitors (i.e., 0 false negatives for visible
+employed by the BGP decision process. They are also among                         events). As in § V-B, since ARTEMIS leverages ground truth
+the most problematic when using third-party services, since                       provided by the operator itself, all illegitimate paths that are
+each time an AS decides to announce a longer prefix or to                         visible by the monitors are always detected as hijacks.
+de-aggregate a prefix, it either needs to communicate this                        ARTEMIS returns 0 false positives for Type-0/1 hijacking
+information in advance to the third-party service or it will                      events. Any BGP update that does not match the local lists
+receive a false-positive alert from it. For this reason, often sub-               {prefix, origin ASN, neighbor ASN}, indicates with certainty
+prefix detection is not even implemented/enabled (§ VIII-A).                      an announcement originated illegitimately by another network
+ARTEMIS returns 0 false positives and 0 false nega-                               (i.e., without the consent of the prefix owner).
+tives for all sub-prefix hijacking events — independently
+of the Type being 0, 1, 2, . . .. To detect these events, the                     D. Detecting Type-N, N≥2, Exact Prefix Hijacks
+network operator stores in the local configuration file of                           Detecting Type-N, N ≥ 2, hijacking events requires a dif-
+ARTEMIS an up-to-date list of all owned and announced                             ferent approach than Type-0/1 events, since the operator might
+prefixes. When a sub-prefix hijack takes place, the monitoring                    not be aware of all its 2nd , 3rd , . . . hop neighbors. To this
+services observe BGP updates for this sub-prefix (the entire                      end, ARTEMIS (i) detects all suspicious Type-N, N ≥ 2,
+Internet is polluted), and ARTEMIS immediately detects it,                        events, i.e., when new AS-links7 appear in routes towards the
+since the sub-prefix is not included in the list of announced
+prefixes. Such a detection becomes trivial with our approach                        7 We consider only new links and not policy violations on existing links
+
+(i.e., leveraging local information). However, this is an impor-                  (as, e.g., [23], [56]), since routing policies are not publicly available, and
+                                                                                  inferences based on existing datasets would lead to a very high number of
+tant result: without this detection in place, attackers can remain                false alerts; e.g., [57] shows that around 30% of the observed routes are not
+stealthy by announcing a sub-prefix, which allows them to                         in agreement with the available routing policy datasets.
+       Authorized licensed use limited to: University of New Brunswick. Downloaded on March 08,2026 at 02:38:18 UTC from IEEE Xplore. Restrictions apply.
+SERMPEZIS et al.: ARTEMIS: NEUTRALIZING BGP HIJACKING WITHIN A MINUTE                                                                                      2477
+
+
+
+operator’s prefixes, (ii) filters out as many legitimate events as               AS-links list from local BGP routers. If the reverse link
+possible, and (iii) augments alerts with information about the                   ASY − ASX has not been previously observed, the event is
+estimated impact of the remaining suspicious events.                             labeled as suspicious.
+   Specifically, ARTEMIS uses a configurable two-stage                           Rule 2 (left AS intersection). Otherwise (i.e., the reverse
+detection approach, where the operator can trade detection                       link ASY − ASX has been previously observed), check the
+speed (Stage 1) for increased accuracy and impact estima-                        AS paths in all the BGP updates containing the reverse link.
+tion (Stage 2). Stage 1 detects all potential hijacking events                   Let P old be the set of all these AS-paths, and denote:
+as soon as they are observed by a monitor (i.e., typically
+with few seconds latency), filters out benign events based on                               P = {LP , ASY , ASX , RP }, ∀P ∈ P old
+information that is available at detection time, and generates
+alerts for suspicious events. An optional Stage 2 collects addi-                 Then, collect all the sets of ASes LP , ∀P ∈ P old , that appear
+tional information within a (configurable) time window Ts2                       after (left of) the reverse link, and
+                                                                                                                     calculate the intersection
+following the detection from Stage 1, in order to (a) increase                   of all these sets, i.e., Lold = P ∈P old LP . If Lold is not
+the chance of filtering out a benign event, and (b) provide the                  empty, andat least one AS in Lold appears also in Lnew
+operator with an estimate of the impact of the event in case it                  (i.e., Lold Lnew = ∅) in the new received path P(X,Y       new
+                                                                                                                                                 ),
+is still recognized as suspicious.                                                                                                   
+                                                                                 then the event is labeled as suspicious. If L   old
+                                                                                                                                       Lnew
+                                                                                                                                              = ∅,
+   1) Stage 1: For Type-N, N ≥ 2, detection, ARTEMIS                             the event is labeled as legitimate.
+stores locally the following lists of directed AS-links (with                       ARTEMIS uses these two filtering rules to identify sus-
+related metadata):                                                               picious announcements of fake links that either contain the
+  • previously verified AS-links list: all the AS-links that
+                                                                                 attacker’s ASN (Rule 1) or do not (Rule 2). The rationale
+    appear in a path towards an owned prefix and have been                       behind the two rules is detailed in the following.
+    verified by ARTEMIS in the past.                                                Rule 1 detects events where the hijacker (e.g., ASX ) is at
+  • AS-links list from monitors: all the AS-links in the AS-path
+                                                                                 one end of the fake link. While ASX can fake an adjacency
+    towards any prefix (i.e., owned by any AS) observed by the                   with ASY , and the link ASX − ASY appears in the polluted
+    monitors, in a sliding window of the last 10 months. This                    routes, the reverse link (i.e., ASY − ASX ) is not advertised
+    list represents an historical view of observed (directed)                    by ASY or other networks, and thus not seen by any monitor.
+    AS-links. The 10-month time frame should accommodate                         It is impossible for an attacker controlling a single AS to make
+    the observation of most of the backup routes [58].                           such a link (i.e., containing its ASN) appear in both directions
+  • AS-links list from local BGP routers: all the AS-links
+                                                                                 in order to evade the detection of Rule 1.8 Hence, observing
+    observed in the BGP messages received by the BGP                             an AS-link ASX −ASY in both directions, eliminates the pos-
+    routers of the network operating ARTEMIS. The list is                        sibility that ASX advertises a fake adjacency. On the contrary,
+    collected by connecting to the local BGP routers (e.g., via                  observing a new link in only one direction cannot guarantee a
+    ExaBGP [54] or with BGPStream and BMP [40], [41]),                           legitimate announcement and thus causes ARTEMIS to raise
+    and receiving every BGP update seen at them, or alterna-                     an alert.
+    tively querying a route server. This list is also updated                       Rule 1 can be evaded only if the hijacker (i) controls at
+    continuously within a 10-month sliding data window.                          least two ASes, or (ii) before prepending its own ASN in
+The detection algorithm is triggered when a monitor receives                     the announcement, inserts a fake link not containing its ASN.
+a BGP update (for a monitored prefix) whose AS-PATH                              While the former case violates our threat model and is out of
+contains an N-hop (N ≥ 2) AS-link that is not included in                        the scope of the paper, we apply Rule 2 to detect the latter case.
+the previously verified AS-links list. Let ASV be the victim                     For instance, a hijacker ASZ can announce to its neighboring
+AS (operating ARTEMIS), the new AS-link be between ASes                          ASes two paths containing a fake link ASX − ASY in both
+ASX and ASY , and the AS-PATH of the BGP update be:                              directions:
+P(X,Y
+ new
+      ) = {AS1 , AS2 , . . . , ASX , ASY , ASr1 , ASr2 , . . . , ASV }                          P1 = {ASZ , . . . , ASX , ASY , . . .}
+        = {Lnew , ASX , ASY , Rnew , ASV }
+                                                                                                  P2 = {ASZ , . . . , ASY , ASX , . . .}
+where Lnew = {AS1 , AS2 , . . .} denotes the set of ASes
+appearing in the path after (left of) the suspicious link, and                   However, in its announcements, the hijacker has to append
+Rnew = {ASr1 , ASr2 , . . .} before (right of) the suspicious                    its ASN as the last (leftmost) AS in the path, before further
+link. Note that the type of the attack is N = 2 + |Rnew |.                       propagation (see § II-A and RFC4271 [1]). Hence, in all BGP
+The observation of P(X,Y new
+                             ) is considered as a suspicious
+                                                                                 updates containing the fake link ASX − ASY in any direction,
+event (and previous works would raise an alarm [23], [56]).                      the AS of the hijacker will appear on the left of the fake link.
+However, it is possible that P(X,Y
+                              new
+                                   ) corresponds to a legitimate
+                                                                                 Rule 2 identifies whether there exists a common AS in all
+event (e.g., change of a routing policy) that made the link                      (new and old) announcements involving any direction of the
+ASX − ASY visible to a monitor. To decrease the number of
+false alarms, ARTEMIS applies the following filtering rules.                       8 When an attacker controls a single AS AS , the only way for it to
+                                                                                                                                     X
+Rule 1 (bi-directionality). Check if the new link                                announce a path containing ASY − ASX is to announce a path with a
+                                                                                 loop (e.g., {ASX , . . . , ASY , ASX , . . .}). However, ARTEMIS detects and
+ASX − ASY has been observed in the opposite direction                            discards announcements with loops instead of adding them to the AS-links list
+(i.e., ASY − ASX ) in the AS-links list from monitors and/or                     from monitors list.
+      Authorized licensed use limited to: University of New Brunswick. Downloaded on March 08,2026 at 02:38:18 UTC from IEEE Xplore. Restrictions apply.
+2478                                                                           IEEE/ACM TRANSACTIONS ON NETWORKING, VOL. 26, NO. 6, DECEMBER 2018
+
+
+
+                                                                                  (speed/accuracy trade-off); here, we select Ts2 = 5 minutes,
+                                                                                  which is enough time for the BGP paths to converge on most
+                                                                                  of the monitors [59].
+                                                                                  Stage 2 allows ARTEMIS to further reduce alerts for
+                                                                                  Type-N, N ≥ 2, events. The black curve (square markers)
+                                                                                  in Fig. 4(b) shows the CDF of the number of events detected
+                                                                                  as suspicious at the end of Stage 2 when using the public
+                                                                                  monitors (RouteViews and RIPE RIS), but not local routers.
+                                                                                  The improvement when using only public monitors is
+                                                                                  around 1%. However, considering also the local monitors and
+Fig. 4. CDF of the number of new AS-links seen at the monitor AS per day,
+per origin AS: (a) before and after applying Stage 1 - ARTEMIS detection          the impact of the events, significantly increases the gains from
+algorithm for Type-N, N ≥ 2, is rarely triggered and Stage 1 dramatically         Stage 2, as we discuss in the remainder.
+reduces the number of FP; (b) after applying Stage 2 (Ts2 = 5 min),
+with different thresholds for the minimum number of monitors that see the         Local routers see significantly more links in the opposite
+suspicious event - requiring at least 2 (or more) monitors to see the event,      direction than monitors, thus further improving the fil-
+greatly reduces the number of FP.                                                 tering of Stage 2. In Stage 2, using the AS-links list from
+                                                                                  local BGP routers as well, further reduces suspicious events.
+new (suspicious) link. If at least one AS appears in all paths,                   We investigate this effect through simulation: we introduce
+then the event is considered suspicious.                                          a new link in the topology, and after BGP convergence we
+ARTEMIS’s Stage 1 returns 0 false negatives. ARTEMIS                              check whether the new link is seen in the opposite direction
+detects any illegitimate announcement that is seen by the mon-                    by the local routers. Our results show that the local BGP
+itors and contains a fake link with (Rule 1) or without (Rule 2)                  routers see the opposite direction of the new link in around
+the hijacker ASN at its ends. It is not possible for an attacker                  25% (2nd-hop) and 30% (3rd-hop) of the cases, thus filtering
+conforming to the threat model of § II to evade these rules,                      1-2 orders of magnitude more Type-2 and Type-3 suspicious
+as long as its announcements are visible.                                         events compared to the case of using only the AS-links
+The ARTEMIS detection algorithm for Type-N, N ≥ 2,                                list from monitors. This rich information that exists locally,
+hijacks, is rarely triggered. To understand how often the                         highlights further the gains from the self-operated approach
+detection algorithm would be triggered, we ran our algorithm                      of ARTEMIS.
+on 1 month of real BGP data, emulating running ARTEMIS                            Stage 2 provides an estimate of the impact of the suspicious
+for each and every AS announcing prefixes on the Internet.                        event. Waiting for BGP convergence allows Stage 2 to further
+Specifically, we processed all the BGP updates observed by                        discover how many monitors see the Type-N suspicious event
+RIPE RIS and RouteViews monitors (a total of 438 ASes                             (i.e., the new suspicious link in a route towards the operator’s
+hosting at least 1 monitor each) between April 2016 and                           prefix) and, therefore, estimate the extent of the “pollution”
+March 2017. Then, for each AS that originated IPv4 or                             in case the event is a hijack. When Stage 2 is enabled,
+IPv6 prefixes in March 2017, we identified the links appearing                    ARTEMIS uses this information to trigger different alert
+for the first time in paths towards their originated prefixes,                    modes and mitigation strategies based on the configuration
+during the same month. Fig. 4(a) shows the CDF (blue/dashed                       provided by the operator (§ VI).
+curve) of the number of new AS-links an origin AS sees                            Stage 2 –optionally– allows the operator to almost elimi-
+(through the monitor ASes) per day towards its own prefixes:                      nate false positives at the expense of a few false negatives
+on average, within the month of March 2017, 72% of the origin                     of negligible control-plane impact. The impact (“pollution”)
+ASes saw less than 2 new links per day.                                           estimate of Stage 2 can also be used to further reduce false
+Stage 1 dramatically reduces the number of suspicious                             positives, by raising an alert only if the number of monitors
+events. We apply the filtering of Stage 1 to the previous                         seeing the event is above a (user-selected) threshold. In this
+data; we considered only the AS-links list from monitors (since                   way, ARTEMIS can completely ignore a large number of
+we do not have access to the local routers of all the ASes).                      uninteresting events (e.g., legitimate changes in routing poli-
+Fig. 4(a) shows the CDF of the number of the aforementioned                       cies that appear as new links) at the expense of potentially
+events that fail Stage 1 (red/circles curve): 73% of the origin                   introducing false negatives that have negligible visible impact
+ASes see less than 1 suspicious event every 3 days.                               on the control plane. This is demonstrated in Fig. 4(b), which
+    2) Stage 2 (Optional): Stage 2 introduces an extra                            shows that the majority of the suspicious events we observe
+delay (Ts2 ) in exchange for (i) refined filtering and (ii) the                   in the Internet (same experiment as in Fig. 4(a)) are seen by
+ability to estimate the impact of a suspicious event. To improve                  only a single monitor.
+filtering of legitimate events, we check if at the end of                            Specifically, according to our experiment in Fig. 4(b) (see
+the Ts2 period, the new link has appeared in the opposite                         x-axis for x → 0), by ignoring all new links observed at
+direction in the BGP updates received from the monitors                           only one monitor, Stage 2 would have generated at most
+and/or local routers. In other words, if the new link really                      one (or, zero) alert in the whole month of March 2017 for
+exists, then it is probable that it is used also in the opposite                  83% (63%) of the origin ASes (green curve). Increasing the
+direction and a route (containing the opposite direction) will                    threshold further decreases alerts: if the operator decides to
+propagate to a monitor or a local router after some time.                         ignore events seen by less than 4 monitors (blue curve) then
+The waiting interval Ts2 can be configured by the operator                        the percentage of origin ASes without at most one (zero) alerts
+       Authorized licensed use limited to: University of New Brunswick. Downloaded on March 08,2026 at 02:38:18 UTC from IEEE Xplore. Restrictions apply.
+SERMPEZIS et al.: ARTEMIS: NEUTRALIZING BGP HIJACKING WITHIN A MINUTE                                                                                      2479
+
+
+
+reaches 94% (81%), and for a threshold of 20 monitors (red
+curve) it is 97% (90%). Finally, Fig. 2(a) provides an indi-
+cation of the rate of potential false negatives this threshold
+would yield: e.g., for Type-2 hijacks and a threshold of at
+least 2 monitors, the percentage of false negatives (i.e., per-
+centage of hijacks with negligible visible impact on the control
+plane, seen by exactly one monitor) would be less than 4%.
+
+                VI. M ITIGATION M ETHODOLOGY
+   Ultimately, a network operator needs to quickly mitigate a
+hijacking event. To this end, a timely detection is not the only                  Fig. 5. Survey results: (a) ranking of characteristics of a hijacking defense
+                                                                                  system, based on their importance, by network operators; (b) practices for
+necessary condition. Low false positives, information about                       detecting/learning about hijacking incidents against owned prefixes.
+the event (e.g., estimated impact, relevance of the affected
+prefix), and an automated system are also key requirements.                       since the cost of potential downtime (or even compromise in
+In this section, we present the ARTEMIS unified approach for                      the case of traffic interception attacks) is much higher than the
+detection and mitigation, which satisfies all these conditions,                   mitigation cost for a false alert.
+and enables a configurable and timely mitigation.                                 ARTEMIS satisfies operators’ needs and outperforms cur-
+                                                                                  rent practices. We conducted a survey among 75 network
+A. ARTEMIS Mitigation Approach                                                    operators (see details in § VIII-A) that shows that the majority
+ARTEMIS provides an informative detection of hijacking                            of networks rely on third parties for detecting hijacks against
+events that enables automated and fast mitigation. The                            their own prefixes (Fig. 5(b)): 61.3% outsource detection
+ARTEMIS detection module can provide the following infor-                         to services such as [19], and 17.3% expect to be notified
+mation –as output– for each detected event:                                       by colleagues or mailing lists. However, the employment
+  1) affected prefix(es);                                                         of third parties may lead to false alerts, delayed (inferred)
+  2) type of the hijacking event;                                                 detection and thus delayed mitigation (§ VIII-A). In contrast,
+  3) observed impact (e.g., number of polluted monitors);                         ARTEMIS provides a reliable and fast detection that also
+  4) ASN(s) of the AS(es) involved in the event;                                  enables fast mitigation, which is one of the main concerns
+  5) confidence level (reliability) of the detection.                             of operators (cf., “Fast mitigation” - Fig. 5(a)). Moreover,
+Note that a detection is always accurate (no false positives;                     self-operated approaches like ARTEMIS are highly desirable
+confidence level = “certainty”) for any type of sub-prefix                        (cf., “Self-managed/operated” - Fig. 5(a)); we believe that
+hijacking events (cf., § V-B) and for exact-prefix Type-0 and                     its characteristics (lightweight, no cost for public monitoring
+Type-1 hijacking events (cf., § V-C), i.e., the events with the                   services, flexible and configurable) render it ideal for –at least–
+highest impact on the control plane. In contrast, the confidence                  two thirds of the networks not currently employing any local
+level of an exact-prefix Type-N, N ≥ 2, hijacking event can                       detection system (Fig. 5(b)).
+be quantified by the result of the detection Stages 1/2 (§ V-D)                      In the following section, we focus on the crucial aspect of
+and allows ARTEMIS to classify an event as more or less                           the mitigation effectiveness (Fig. 5(a)). We study and propose
+suspicious (e.g., confidence level = “alert by Stage 1” and/or                    mitigation techniques that build on current practices and can
+“alert by Stage 2”).                                                              be incorporated in the ARTEMIS approach.
+   This information is sufficient in most cases for an oper-
+ator to decide how to configure the network’s reaction to                         B. Mitigation Techniques
+a hijacking or suspicious event. As a result, ARTEMIS                                We propose two mitigation techniques that can be used with
+enables the automation of mitigation: (i) the operator pre-                       ARTEMIS (other techniques could work as well). Specifically,
+configures ARTEMIS (mitigation module) to proceed to dif-                         the victim AS can counteract a hijack with its own resources
+ferent mitigation actions based on the detection output ; for                     by deaggregating the hijacked prefix (Section 6.2.1), or out-
+instance, the following mapping could be used9 :
+                                                                                  source the mitigation to a third party organization, which will
+  {Prefix, Impact, Confidence level} → Mitigation action;                         announce the prefix on behalf of the victim to reduce the
+                                                                                  impact of the hijack (Section 6.2.2).
+(ii) ARTEMIS executes the pre-selected action immediately                            1) Self-Operated Mitigation With Prefix Deaggregation:
+after the detection of an event, not requiring manual actions.                    After receiving an alert for an ongoing hijacking event, opera-
+   Examples of applying this approach are: (a) the operator                       tors replied in our survey that they would react by contacting
+selects to handle an event of limited impact (squatting, few                      other networks (88% of the participants) and/or deaggregating
+polluted monitors, etc.) manually instead of triggering an auto-                  the affected prefix (68% of the participants). While the former
+mated mitigation process; (b) for sensitive prefixes (e.g., web-                  action involves a significant delay (up to many hours, or even
+banking), the operator selects to always proceed to mitigation                    days [15], [60]), the latter can be automated and applied
+(e.g., even for low-confidence alerts for Type-N≥ 2 hijacks),                     immediately after the detection step using the ARTEMIS
+  9 In this example, the hijack type and hijacker’s ASN are wildcards. In a
+                                                                                  approach.
+more specific mapping, all five fields of the information presented above could      Prefix deaggregation is the announcement of the more
+be distinctly used.                                                               specific prefixes of a certain prefix. For example, upon the
+      Authorized licensed use limited to: University of New Brunswick. Downloaded on March 08,2026 at 02:38:18 UTC from IEEE Xplore. Restrictions apply.
+2480                                                                           IEEE/ACM TRANSACTIONS ON NETWORKING, VOL. 26, NO. 6, DECEMBER 2018
+
+
+
+detection of a hijack for the prefix 10.0.0.0/23, the network can
+perform prefix deaggregation and announce two more-specific
+sub-prefixes: 10.0.0.0/24 and 10.0.1.0/24. These sub-prefixes
+will disseminate in the Internet and the polluted ASes will
+re-establish legitimate routes, since more-specific prefixes are
+preferred by BGP. Prefix deaggregation is effective for /23
+or less-specific (/22, /21, . . .) hijacked prefixes (since /25
+prefixes and more-specifics are filtered by most routers [61]).
+Moreover, it can be operated by the network itself without
+any added cost. The automation of prefix deaggregation over
+ARTEMIS is simple, e.g., using ExaBGP [54] or custom
+scripts that are triggered immediately after the detection.
+A potential mapping could be:                                                     Fig. 6.     Efficiency of mitigation via outsourcing BGP announcements
+                                                                                  to organizations selected (i) randomly, and based on their (ii) number
+         {Prefix length < /24, *, *} → Deaggregation                              of providers and (iii) customer cone (top ISPs), and via (iv) filtering
+                                                                                  at top ISPs. Outsourcing mitigation –even to a single organization– is
+where * denote wildcards (i.e., any impact/confidence level).                     very effective and significantly outperforms current practices (filtering).
+                                                                                  (a) Hijack type 0. (b) Hijack type 1.
+   To mitigate hijacks against /24 prefixes, in the following we
+study mechanisms that require the involvement of additional                       present simulation results for the remaining number of polluted
+networks besides the one operating ARTEMIS.                                       ASes (y-axis) after announcing the prefix from different num-
+   2) Outsourcing Mitigation With MOAS Announcements:                             bers of mitigation organizations (x-axis) in addition to the net-
+It is common practice for networks to outsource various                           work operating ARTEMIS. We consider three cases where we
+security services to a single (or a few) third-party orga-                        select the outsourcing organizations (i) randomly, and based
+nization(s). A prominent example is the DDoS mitigation                           on their (ii) number of providers (which correlates with their
+service offered by organizations to networks that are unable                      mitigation efficiency [50]) and (iii) customer cone (“top ISPs”)
+to handle large volumetric DDoS attacks [62]. Moreover,                           that corresponds to large ISPs [65].
+39% of the participants in our survey do not reject the                           Outsourcing mitigation even to a single organization is very
+possibility to outsource hijacking mitigation. We also expect                     effective, and significantly reduces the impact of hijacking.
+that the higher level of accuracy offered by ARTEMIS and the                      Fig. 6(a) shows that outsourcing BGP announcements to the
+per-prefix configurability would make more operators consider                     top ISPs outperforms a selection of ASes with many providers,
+outsourcing mitigation, when triggering it is under their control                 while randomly selecting organizations is always less efficient.
+(e.g., allowing them to carefully manage the cost vs. security                    However, even a single randomly selected organization can
+risk trade-off). We thus propose a mitigation technique that                      considerably reduce the impact of the hijacking event (on
+presents several analogies with the current practice of DDoS                      average), from 50% to 34% and from 28% to 14% for Type-0
+mitigation services, and study its efficiency.                                    (Fig. 6(a)) and Type-1 (Fig. 6(b)) events, respectively, which
+   Outsourcing BGP announcements is similar to the out-                           clearly indicates an effective and robust mitigation technique.
+sourced DDoS protection security model, where the orga-                           Outsourcing to more than one organization simultaneously
+nizations that mitigate the attacks redirect the traffic (using                   and/or carefully selecting the mitigation organization can fur-
+BGP/MOAS or DNS) to their locations and scrubbing cen-                            ther increase the mitigation benefits, e.g., leading to less than
+ters, remove malicious traffic, and forward/relay the legiti-                     5% polluted ASes (one order of magnitude lower compared
+mate traffic to the victim. In the case of BGP hijacking,                         to the initial impact) with only 3 top ISPs for Type-0 events.
+the mitigation organization receives a notification from the
+network operating ARTEMIS, and immediately announces                              Outsourcing BGP announcements outperforms current
+from their location/routers the hijacked prefix. In this way,                     practices. In Fig. 6 we compare the efficiency of outsourcing
+the organization attracts traffic from parts of the Internet and                  against prefix filtering, a proactive defense that needs coopera-
+then tunnels it back to the legitimate AS, e.g., through MPLS                     tion of networks and is currently partially deployed (§ VIII-A).
+tunnels to the victim or its upstream providers [63], or direct                   We consider filtering of the illegitimate routes from the
+peering links [64] (the latter approach is effective even if the                  top ISPs; while filtering applies to origin-AS hijacks today,
+entire IP space of the victim is compromised). The automation                     in Fig. 6(b) we assume a potential filtering for Type-1
+of this process could be implemented, e.g., with ARTEMIS-                         hijacks as well. Our results show that filtering is much less
+triggered MOAS on the control plane and traffic tunneling                         efficient than outsourcing BGP announcements: even with
+on the data plane; a corresponding mapping in ARTEMIS                             10 filtering ASes, the mitigation efficiency is almost equal
+(potentially only for the most security-sensitive prefixes owned                  to (Fig. 6(a)) or not better than (Fig. 6(b)) using a single
+by the organization) could thus be:                                               randomly selected outsourcing AS. Increasing the number of
+                                                                                  filtering ASes to a few dozens (results omitted for brevity),
+{Prefix length=/24,*,*} → Outsource BGP announcements                             barely helps.
+   More than one external organization can be employed for                        Existing industry security models can provide highly
+more effective mitigation. In the following, we investigate                       effective outsourced mitigation. In Table V, we present
+the efficiency of this technique for different selection crite-                   the hijacking mitigation efficiency of different organizations
+ria and number of mitigation organizations. In Fig. 6 we                          that currently provide DDoS protection services. We selected,
+       Authorized licensed use limited to: University of New Brunswick. Downloaded on March 08,2026 at 02:38:18 UTC from IEEE Xplore. Restrictions apply.
+SERMPEZIS et al.: ARTEMIS: NEUTRALIZING BGP HIJACKING WITHIN A MINUTE                                                                                     2481
+
+
+
+                                TABLE V                                         connectivity to PEERING, which we select due to their Inter-
+ M EAN P ERCENTAGE OF P OLLUTED ASes, W HEN O UTSOURCING BGP                    net connectivity characteristics. GRN and ISI resemble the
+      A NNOUNCEMENTS TO O RGANIZATIONS P ROVIDING DDoS
+        P ROTECTION S ERVICES ; T HESE O RGANIZATIONS CAN
+                                                                                connectivity of a typical small ISP in the real Internet, while
+             P ROVIDE H IGHLY E FFECTIVE O UTSOURCED                            AMS resembles a large ISP. We are granted authorization
+                  M ITIGATION OF BGP H IJACKING                                 to announce the prefix 184.164.228.0/23 (as well as its two
+                                                                                /24 sub-prefixes), and use the AS numbers 61574 for the
+                                                                                legitimate AS, 61575 for the hijacker AS, and 61576 for the
+                                                                                outsourcing AS.
+                                                                                Methodology: Using the aforementioned ASNs, we create
+                                                                                three virtual ASes in PEERING: (i) the legitimate (or vic-
+                               TABLE VI                                         tim) AS, (ii) the hijacker AS, and (ii) the outsourcing AS. For
+             PEERING S ITES U SED IN THE E XPERIMENTS                           each experiment, we connect each virtual AS to a different
+                                                                                site/network of Table VI, and proceed as follows.
+                                                                                 1. Legitimate announcement. The legitimate (victim) AS
+                                                                                    announces the /23 IP prefix at time t0 , using ARTEMIS
+                                                                                    to monitor this prefix for potential hijacking events.
+                                                                                 2. Hijacking Event. The hijacker AS hijacks (i.e., announces)
+as examples, 5 organizations of varying sizes10 and simulated                       the /23 IP prefix at time th = t0 + 20min.
+BGP announcements originating from them for the hijacked                         3. Detection. When a hijacked (illegitimate) route arrives at a
+prefix. Mitigation with any of them is efficient, outperforming                     monitor, ARTEMIS detects the event at a time td (> th ),
+even top ISPs. Specifically, mitigation from Akamai is the                          and immediately proceeds to its mitigation.
+most efficient, reducing the percentage of polluted ASes                         4. Mitigation. The legitimate AS announces the /24 sub-
+to 2.4% (from 50% originally) on average for Type-0 hijacks.                        prefixes (deaggregation), or the outsourcing AS announces
+This holds also for the other hijack types, where the average                       the /23 prefix (MOAS announcement) at time tm
+percentage of polluted ASes is reduced to 0.3% or less.                             (tm ≈ td ).
+              VII. R EAL -W ORLD E XPERIMENTS                                   Scenarios: We conduct experiments in several scenarios of
+                                                                                different hijacking and mitigation types, considering all com-
+  We setup and conduct real BGP prefix hijacking experi-
+                                                                                binations of the following parameters:
+ments in the Internet (§ VII-A) using the PEERING test-
+                                                                                  • Location (i.e., connection to PEERING sites) of the legit-
+bed [66], [67]. We implemented a prototype of ARTEMIS,
+                                                                                    imate, hijacker, and outsourcing ASes.
+which we use to detect and mitigate the hijacking
+                                                                                  • Hijacking event types: 0 (origin-AS), 1, and 2.
+events, and study the actual detection and mitigation times
+                                                                                  • Mitigation via deaggregation or MOAS announcements.
+observed (§ VII-B).
+                                                                                   For brevity, we denote a scenario with three letters
+                                                                                {V, H, M }, indicating the location of the victim, hijacker,
+A. Experimental Setup                                                           and mitigator PEERING sites, respectively. For instance,
+ARTEMIS prototype. The current prototype implementation                         “{G,A,I}” denotes the experiment where the victim and
+of ARTEMIS interacts with the streaming services through                        hijacker ASes are connected to GRN and AMS sites, respec-
+the RIPE RIS socket.io API and telnet for BGP-                                  tively, and mitigation is performed through BGP announce-
+mon. It receives streams of BGP updates (formatted in plain                     ments from an outsourcing AS connected to ISI. In deaggrega-
+text from RIPE RIS and XML format from BGPmon), and                             tion scenarios, the mitigation is self-operated by the victim AS,
+keeps/filters only the BGP updates concerning the network-                      thus the first and third letters are the same, e.g., “{G,A,G}”.
+owned prefixes. CAIDA’s BGPStream will soon support read-                       When we consider only the hijacking and not the mitigation
+ing from multiple streaming data sources simultaneously [37],                   phase, we use only the first two letters, e.g., “{G,A,*}”.
+[41] (including RIPE RIS socket.io and BMP feeds, which                         Monitoring the Experiments: In the ARTEMIS prototype
+RouteViews and others plan to make available at the same                        we use the BGPmon [34] and the RIPE RIS [26] stream-
+time). We envision replacing the BGP feed interface of our                      ing services for the continuous real-time monitoring of the
+ARTEMIS implementation using CAIDA’s BGPStream API.                             Internet control plane and the detection of hijacking events.
+Testbed: PEERING [66], [67] is a testbed that connects with                     In our experiments, we use the same services to monitor the
+several real networks around the world, and enables its users                   mitigation process as well.
+to announce routable IP prefixes from real ASNs to the rest                        The BGPStream framework provides BGP updates from all
+of the Internet; the IP prefixes and ASNs are owned by                          the monitors of RIPE RIS and RouteViews, currently with a
+PEERING, hence, announcements do not have any impact on                         delay of several minutes (see § III). Hence, we use BGPStream
+the connectivity of other networks.                                             for a post-analysis of the experiments: after the experiment we
+   In our experiments, we use the connections to three real                     collect the BGP updates received by the monitors during the
+networks/sites (Table VI; data of Jun. 2017) that provide transit               experiment and analyze them. We present these results, and
+  10 Namely: Akamai (AK; ASNs: 20940, 16625), CloudFlare (CF; ASN:
+                                                                                compare them with those from the current real-time monitors,
+13335), Verisign (VE; ASNs: 26415, 30060, 7342, 16838), Incap-                  to demonstrate the performance of ARTEMIS when more
+sula (IN; ASN: 19551), and Neustar (NE; ASNs: 7786, 12008, 19905).              monitors turn real-time.
+     Authorized licensed use limited to: University of New Brunswick. Downloaded on March 08,2026 at 02:38:18 UTC from IEEE Xplore. Restrictions apply.
+2482                                                                           IEEE/ACM TRANSACTIONS ON NETWORKING, VOL. 26, NO. 6, DECEMBER 2018
+
+
+
+
+                                                                                  Fig. 8.      (a) Recovery delay of the the real-time (black) and all
+Fig. 7. (a) Detection delay for different location scenarios (x-axis), and        (Routeviews+RIS) (gray) monitors; type-0 hijacks and mitigation through
+origin-AS (type-0) hijacks. (b) Average number of real-time monitors that         deaggregation ({I,A,I} and {I,G,I}) and outsourcing BGP announcements
+observed hijacked routes over time. Boxplots/curves correspond to average         ({G,A,I} and {G,I,A}) scenarios. (b) Average number of polluted real-time
+values over 10 experiment runs per scenario. ARTEMIS detects hijacks within       (black) and all (RouteViews+RIS) (gray) monitors for the {I,A,I} scenario.
+a few seconds (usually < 5s), while the hijack is observed by most of the         Boxplots/curves correspond to average values over 10 experiment runs per
+monitors in less than 10s.                                                        scenario. With the automated mitigation of ARTEMIS, the vast majority of
+                                                                                  the ASes recover from the hijack within 60s.
+B. Experimental Results
+   We next analyze the time needed by ARTEMIS to detect and
+mitigate hijacking events in various experimental scenarios.                      could further decrease; the improvement is small in our exper-
+   Detection: We consider the detection delay, td − th , i.e., the                iments, since the detection with real-time services is already
+time elapsed between the hijacker’s announcement (th ) and the                    fast. Moreover, as already discussed in § IV, adding more
+detection of the event by ARTEMIS (td ).                                          monitors increases the visibility of hijacks. For instance, in the
+   In Fig. 7(a) we present the distribution of the detection delay                {A,I,*} scenarios where the victim (AMS) is better connected
+for different location scenarios, under type-0 hijacking events.                  than the hijacker (ISI), while the (exact prefix) hijack is not
+Boxplots correspond to the values of 10 runs per scenario,                        detected by real-time services, using all monitors would enable
+for either real-time services (black boxplots) or all services                    a timely (< 6s) detection.
+(i.e., post-analysis with BGPStream for RouteViews and RIPE                       Detection is robust. In Fig. 7(b) we present the average
+RIS monitors; gray boxplots). We note that the following                          number of real-time monitors that observed a hijacked route
+insights are valid across hijacking event types, since we                         over time for different scenarios. While ARTEMIS is able
+observed (results omitted for brevity) that the type does                         to detect an event from a single (i.e., the first seen) hijacked
+not significantly affect the detection delay; small increases                     route, its robustness (e.g., against monitor failures) increases
+(no more than a few seconds) can though occur because                             with the number of observed routes. The experimental results
+in high-type hijacks, less hijacked routes eventually reach                       in Fig. 7(b) demonstrate that the detection delay would remain
+the monitors (due to the preference of shorter AS-paths).                         low even under multiple monitor failures: while the number
+Moreover, the tunable waiting time of Stage 2 (in case Stage 1                    of observed hijacked routes differs among scenarios (due to
+does not suffice, see § V-D) for type-{N ≥ 2} hijacks can be                      the connectivity of the hijacker), in all of them (i) more than
+added to the detection delay.                                                     5 monitors observe the event within 5s, and (ii) almost half of
+ARTEMIS achieves near real-time detection, within a few                           the monitors that eventually observe the event, see the hijacked
+seconds of the hijacker’s announcement. The ARTEMIS                               route within 10s. Our post analysis with BGPstream shows a
+detection process is lightweight and thus a hijack event is                       similar trend (with the respective number of monitors being
+detected almost instantaneously after the reception of an ille-                   3 − 4 times higher).
+gitimate BGP update. Hence, the detection delay is equivalent                        Mitigation: We next study how fast the hijacking event is
+to the delay of the monitoring services. Specifically, Fig. 7(a)                  mitigated when using the ARTEMIS approach. To quantify
+shows that the detection via the real-time services is extremely                  the speed of the mitigation, we define the recovery delay
+fast, and in some cases only 1s is required. In all cases the                     as the time elapsed between the pollution of an AS/monitor
+median of the detection delay is at most 5s. The delay is almost                  by a hijacked route, until it receives again a legitimate route
+always less than 10s, and in the worst case 13s ({G,I,*} sce-                     (e.g., towards the deaggregated sub-prefixes).
+nario in Fig. 7(a)). In fact, the 1s delay in some experiments,                   ARTEMIS achieves almost complete mitigation of the
+indicates that ARTEMIS reduces the detection delay to the                         hijacking event within a minute. In Fig. 8(a) we present the
+propagation time of BGP updates (from the hijacker to the                         distribution of recovery delay (over different ASes and experi-
+monitors): the detection takes place upon the first BGP update                    ment runs) for different location and mitigation scenarios. The
+that reaches any monitor. This propagation time depends on the                    time for hijacked ASes to recover is similarly distributed for
+connectivity of the hijacker, e.g., we observe that the detection                 different mitigation types, and it tends to be higher when
+is on average 2 − 3s faster when the hijacker is the GRN site                     the hijacker is a well connected AS (see, e.g., {I,A,I} and
+({A,G,*} and {I,G,*} scenarios).                                                  {G,A,I} scenarios where AMS is the hijacker). Nevertheless,
+Adding monitors decreases detection delay and increases                           the following main observations hold for all scenarios: half
+visibility of hijacks. If all RouteViews and RIPE RIS monitors                    of the ASes (see medians) recover from a hijacking event
+provided real-time streams (gray boxplots), detection delay                       in less than 30s, and the vast majority of them in less than
+       Authorized licensed use limited to: University of New Brunswick. Downloaded on March 08,2026 at 02:38:18 UTC from IEEE Xplore. Restrictions apply.
+SERMPEZIS et al.: ARTEMIS: NEUTRALIZING BGP HIJACKING WITHIN A MINUTE                                                                                     2483
+
+
+
+a minute (with some outliers reaching up to 2min.). This                        insufficiency of proactive mechanisms, networks mainly
+clearly demonstrates the benefits of the automated mitigation                   defend against hijacking events in a reactive manner. The
+of ARTEMIS, compared to current practices that usually need                     speed of the reactive defenses is crucial; even short-lived
+several hours to mitigate such events (see § VIII-A).                           events can have severe consequences [4]. However, the reality
+   Fig. 8(b) shows the average number of polluted monitors                      shows that, currently, hijacking events are not quickly miti-
+(i.e., with a route to hijacker) over time for the {I,A,I} scenario.            gated. For instance, back in 2008, a hijacking event affected
+We observe that the number of polluted monitors increases                       YouTube’s prefixes and disrupted its services for 2 hours [33].
+fast after the event and reaches its peak within 10s. After the                 More recently, in Sep. 2016, BackConnect hijacked, at differ-
+event is detected (typically in 3-6s for the {I,A,I} scenario;                  ent times, several ASes; the events lasted for several hours [9].
+see Fig. 7(a)), the mitigation starts immediately. The routes                   In Apr. 2017, financial services, like Visa and Mastercard, and
+for the deaggregated prefixes start propagating, leading to a                   security companies, like Symantec, were hijacked by a Russian
+fast recovery of the polluted monitors within 10-50s after                      company for seven minutes [7]. Moreover, past experience
+the event; within a minute the vast majority of monitors                        of operators who participated in our survey shows that their
+have recovered. We observed similar behavior in all scenarios,                  networks were affected for a long time by hijacking events:
+indicating that the real performance of ARTEMIS in practice                     more than 57% of events lasted more than an hour, and 25%
+would be similar to the results of Fig. 8(b).                                   lasted even more than a day; only 28% of the events were
+                                                                                short-termed, lasting a few minutes (14%) or seconds (14%).
+                    VIII. S TATE OF THE A RT                                    The mitigation of hijacking events is delayed primarily due
+A. Real-World Problems With BGP Hijacking                                       to third-party detection and lack of automation. Reactive
+   We now look at the reasons for which BGP prefix hijacking,                   defenses comprise two steps: detection and mitigation. Sev-
+although extensively studied, remains a serious threat to Inter-                eral systems have been proposed for prefix hijacking detec-
+net operators and users. To this end, we discuss the current                    tion [20]–[24], [27], [30], with most of them being designed
+practices and complement our discussion with findings of a                      to operate as third-party services; they monitor the Internet
+survey we conducted among network operators. We launched                        control/data plane and upon the detection of a suspicious
+our survey [15] in April 2017, targeting mailing lists of                       event or anomaly, notify the involved ASes. Our survey reveals
+network operator groups to improve our understanding of the:                    a similar trend in practice: more than 60% rely on third-parties
+(i) real impact of BGP prefix hijacking, (ii) currently used                    (e.g., [19]) to get notified about suspicious events involving
+defenses, as well as (iii) the concerns, needs and requirements                 their prefixes. Although state-of-the-art third-party detection
+of network operators. We received answers from 75 partic-                       services can quickly notify networks about suspicious events11 ,
+ipants operating a broad variety of networks (ISPs, CDNs,                       the alerts are not always accurate (i.e., false positives), as dis-
+IXPs, etc.) around the world (the detailed results of the survey                cussed in [60] and self-reported in our survey [15]. False
+can be found in [15]).                                                          alerts might be triggered by third-parties for legitimate events
+Operators are reluctant to deploy proactive defenses,                           (e.g., MOAS, traffic engineering, change of peering policies),
+since they offer limited protection against hijacking. Sev-                     due to missing/inaccurate/stale information. As a result, oper-
+eral modifications to BGP to protect networks against prefix                    ators need to manually verify the alerts received by third
+hijacking have been proposed [10]–[12], [14], but are not                       party services; this process introduces significant delay in the
+implemented due to several political, technical, and economic                   detection step, and prevents networks from automating their
+challenges. Proactive defenses that are deployed mainly com-                    mitigation counteractions. Finally, extra delay is added to the
+prise prefix filtering and RPKI [43], [45], [68]. Prefix filtering              process of mitigation itself, which frequently takes place in
+can be used by ISPs to discard route announcements for                          an ad-hoc way: for example, upon the detection of a hijack,
+prefixes that their customers are not allowed to originate.                     operators start contacting other operators to identify the root of
+However, prefix filtering is currently applied by a small                       the problem, and resolve it. Interestingly, this is the only action
+number of ISPs (due to lack of incentives, poor trust mech-                     that 25% of operators in our survey would take to mitigate
+anisms, need for manual maintenance, etc. [68]) and offers                      the hijack; however, with this approach the resolution of the
+protection only against a few potential hijackers (i.e., their                  problem might require several hours or even days [60].
+customers) and hijacking events (origin-AS). RPKI enables
+                                                                                B. Related Literature
+automated route origin authentication (ROA) in the Internet,                       1) Detection of BGP Hijacking: BGP hijacking detection
+to prevent origin-AS hijacks. However, the small percentage                     approaches can be classified based on the type of information
+of prefixes covered by ROAs (around 7% in Oct. 2017 [69])                       they use, as: (i) control-plane, (ii) data-plane, and (iii) hybrid.
+and the limited deployment of RPKI route origin validation                      Each type has its own strengths and weaknesses, which we
+(ROV) [45], [69], [70] leaves the vast majority of networks                     analyze in the following. For convenience, we also summarize
+unprotected [44], [45]. Our survey results and previous stud-                   in Table I the classes of hijacking events that can be detected
+ies [45] reveal the main reasons that hinder the deploy-                        by existing systems.
+ment of RPKI: little security benefits, mistrust issues,                           Similarly to ARTEMIS, control-plane approaches [19],
+inter-organization dependencies for issuing ROA certificates,                   [21], [22], [56] collect BGP updates or routing tables from
+operating costs, and complexity.
+                                                                                   11 However, 17% of the participants in our survey expect to get notified for
+Hijacking events, under current practices, have a last-                         hijacking events by receiving notification from colleagues, clients, mailing
+ing impact on the Internet’s routing system. Due to the                         lists, etc., which implies significantly delayed detection.
+     Authorized licensed use limited to: University of New Brunswick. Downloaded on March 08,2026 at 02:38:18 UTC from IEEE Xplore. Restrictions apply.
+2484                                                                           IEEE/ACM TRANSACTIONS ON NETWORKING, VOL. 26, NO. 6, DECEMBER 2018
+
+
+
+a distributed set of BGP monitors and route collectors, and                       approach of ARTEMIS (§ V, summarized in Table IV) is
+raise alarms when a change in the origin-AS of a prefix, or a                     the first to combine all the following characteristics: self-
+suspicious route is observed. Since they passively receive                        operated, ground truth-based, lightweight detection, allowing
+BGP feeds, they are considered quite lightweight. They can                        for increased accuracy of alerts (0 false positives for most
+detect Type-0 (and Type-1) hijacking events, both for exact                       classes, virtually 0 false negatives), and comprehensiveness in
+prefixes and sub-prefixes, independently of how the hijacker                      terms of attack class coverage, no matter how the attacker
+handles the attracted traffic on the data plane (blackholing-BH,                  manipulates the control and data planes to execute the hijack.
+imposture-IM, man-in-the-middle-MM). However, in contrast                            2) Mitigation of BGP Hijacking: Several proposals
+to ARTEMIS, state-of-the-art systems [19] miss advanced                           exploit cryptographic mechanisms to prevent BGP hijac-
+type-N, N≥2 hijacking events that are harder to detect and                        king [10]–[13]. Others [14] delay the installation of suspicious
+can be used by a sophisticated attacker. Furthermore, since                       BGP routes, in order to allow network administrators to verify
+they are designed as third-party detection services, they have                    first and then install them. However, these approaches require
+to deal with the real-world problem (§ VIII-A) of keeping what                    modifications to BGP and/or global adoption, as proactive
+they observe consistent with the ground truth on the operator’s                   countermeasures to hijacking events; this has been shown to
+side, to achieve low false-positive rates while preserving their                  be infeasible due to important technological, political and eco-
+real-time performance.                                                            nomic factors. In contrast, we propose reactive self-operated
+   Data-plane approaches [20], [30] follow complementary                          mitigation (prefix deaggregation) or outsourcing it to a single
+methods to ARTEMIS, using pings/traceroutes to detect                             (or, a few) organization(s), which are based on security models
+hijacks on the data plane. They continuously monitor the                          used in practice and –as shown in our study– can be very
+connectivity of a prefix and raise an alarm, when significant                     efficient, without requiring large-scale coordination. In fact,
+changes in the reachability [30] of a prefix or the paths                         we show (see Fig. 6(a)) that using only a handful top ISPs
+leading to it [20] are observed. iSpy [30] can be deployed                        for outsourcing BGP announcements, the attained benefit
+by the network operator herself (similarly to ARTEMIS).                           (< 5% attacker success rate) would require two orders of
+However, it cannot reliably detect sub-prefix hijacking events,                   magnitude more top ISPs to coordinate and perform Route
+since it targets few IP addresses per prefix, and can be                          Origin Validation (ROV) in RPKI [45].
+severely affected by temporary link failures or congestion                           Zhang et al. [71] propose a reactive mitigation mechanism
+near the victim’s network, increasing its false positive rates.                   based on the purging of illegitimate routes and the promotion
+Finally, since data-plane approaches require a large number                       of valid routes. Compared to outsourcing BGP announce-
+of active measurements to safely characterize an event as a                       ments, the approach of [71] requires one order of magnitude
+hijack, they are more heavyweight than control-plane-assisted                     more mitigator ASes (“lifesavers”) to achieve similar benefits,
+approaches [23].                                                                  as well as complex coordination among these ASes. A similar
+   Hybrid approaches [23], [24], [27], [52], [55] combine con-                    approach to outsourcing BGP announcements is introduced
+trol and data plane information, and sometimes query external                     in [72], whose focus is on selecting an optimal set of ASes as
+databases (e.g., Internet Routing Registries, IRR) [23], [27],                    monitor/relay “agents” per victim-hijacker pair. Those results
+to detect multiple classes of hijacking events. HEAP [27] can                     are complementary to our study which considers existing
+detect any type of AS-PATH manipulation on the control                            monitoring infrastructure and organizations that currently offer
+plane, but is limited to sub-prefix hijacking events which result                 outsourced security services.
+in blackholing or imposture on the data plane. Thus, it misses
+MM attacks both for exact prefix and sub-prefix hijacks. The                                                IX. C ONCLUSIONS
+state-of-the-art detection system Argus [23], is able to achieve                     BGP prefix hijacking, based on accidental misconfiguration
+few false positives/negatives and timely detection, both for                      or malicious intent, is a problem that continuously pests Inter-
+exact prefixes and sub-prefixes, by correlating control and                       net organizations and users, resulting in high-profile incidents.
+data plane information. However, Argus considers only BH                          State-of-the-art solutions, proposed in research or adopted in
+attacks, whereas ARTEMIS is able to detect a hijack even                          daily operations, are not able to counter this situation due to
+if the hijacker relays traffic (MM) or responds (IM) to it.                       issues related to: (i) attacker evasion (i.e., comprehensiveness
+The same issue is faced by Hu and Mao [24], where only                            of detection, e.g., for MitM attacks), (ii) inaccuracy of detec-
+BH and IM attacks can be detected for any kind of prefix,                         tion alerts, which results in (iii) slow manual verification and
+while MM attacks remain under-the-radar. LOCK [52] locates                        mitigation processes, and (iv) incompatibility with practical
+attacker ASes by actively monitoring control/data-plane paths                     needs of network operators in terms of information privacy
+towards the victim prefix. It relies on the evaluation of AS                      and flexibility of countermeasures.
+adjacencies to detect BH, IM or MM attacks, but it might miss                        In this work, we proposed ARTEMIS, a self-operated
+sub-prefix and stealthy Type-U hijacks. Schlamp et al. [55]                       control-plane approach to counter BGP prefix hijacking.
+analyze and focus on a specific hijack case, e.g., attack on                      ARTEMIS departs from the common approach of third-party
+unannounced BGP prefixes (BGP squatting); data sources such                       detection and notification systems, instead exploiting local
+as IRRs or DNS could be used to warn vulnerable ASes.                             information and real-time BGP feeds from publicly available
+   Finally, while there is no consistent ground truth or dataset                  monitoring services, in order to provide an accurate, compre-
+with which to compare all the claimed FN/FP rates of                              hensive and timely detection. This detection approach is highly
+the aforementioned approaches, we stress that the detection                       effective and enables a automatable, configurable, and timely
+
+       Authorized licensed use limited to: University of New Brunswick. Downloaded on March 08,2026 at 02:38:18 UTC from IEEE Xplore. Restrictions apply.
+SERMPEZIS et al.: ARTEMIS: NEUTRALIZING BGP HIJACKING WITHIN A MINUTE                                                                                      2485
+
+
+
+mitigation of hijacking events, which satisfies the needs and                    [18] D. Cooper, E. Heilman, K. Brogle, L. Reyzin, and S. Goldberg, “On the
+requirements of operators (as, e.g., expressed in our survey).                        risk of misbehaving RPKI authorities,” in Proc. ACM HotNets, 2013,
+                                                                                      Art. no. 16.
+Moreover, as part of our study, we demonstrated the value of                     [19] BGPmon (Commercial). Accessed: Aug. 2018. [Online]. Available:
+public monitoring infrastructure for hijacking detection, and                         http://www.bgpmon.net
+                                                                                 [20] C. Zheng, L. Ji, D. Pei, J. Wang, and P. Francis, “A light-weight
+showed that the planned transitions to more pervasive real-time                       distributed scheme for detecting ip prefix hijacks in real-time,” ACM
+streaming can bring substantial benefits. Our simulation results                      SIGCOMM Comput. Commun. Rev., vol. 37, no. 4, pp. 277–288, 2007.
+support the feasibility of the ARTEMIS approach while our                        [21] Y.-J. Chi, R. Oliveira, and L. Zhang, “Cyclops: The AS-level connec-
+                                                                                      tivity observatory,” ACM SIGCOMM Comput. Commun. Rev., vol. 38,
+real-world experiments show that it is possible to neutralize                         no. 5, pp. 5–16, 2008.
+the impact of hijacking attacks within a minute, a radical                       [22] M. Lad et al., “PHAS: A prefix hijack alert system,” in Proc. USENIX
+improvement compared to the defenses used in practice by                              Secur., 2006, p. 3.
+                                                                                 [23] X. Shi, Y. Xiang, Z. Wang, X. Yin, and J. Wu, “Detecting prefix
+networks today.                                                                       hijackings in the Internet with Argus,” in Proc. ACM IMC, 2012,
+                                                                                      pp. 15–28.
+                                                                                 [24] X. Hu and Z. M. Mao, “Accurate real-time identification of IP prefix
+                         ACKNOWLEDGMENT                                               hijacking,” in Proc. IEEE Symp. Secur. Privacy, May 2007, pp. 3–17.
+                                                                                 [25] The Route Views Project. Accessed: Aug. 2018. [Online]. Available:
+   The U.S. Government is authorized to reproduce and dis-                            http://www.routeviews.org/
+tribute reprints for Governmental purposes notwithstanding                       [26] RIPE RIS—Streaming Service. Accessed: Aug. 2018. [Online].
+                                                                                      Available: labs.ripe.net/Members/colin_petrie/updates-to-the-ripe-ncc-
+any copyright notation thereon. The views and conclusions                             routing-information-service
+contained herein are those of the authors and should not                         [27] J. Schlamp, R. Holz, Q. Jacquemart, G. Carle, and E. E. Biersack,
+be interpreted as necessarily representing the official poli-                         “HEAP: Reliable assessment of BGP hijacking attacks,” IEEE J. Sel.
+                                                                                      Areas Commun., vol. 34, no. 6, pp. 1849–1861, Jun. 2016.
+cies or endorsements, either expressed or implied, of Air Force                  [28] Y. Song, A. Venkataramani, and L. Gao, “Identifying and addressing
+Research Laboratory or the U.S. Government. This work made                            reachability and policy attacks in ‘secure’ BGP,” IEEE/ACM Trans.
+use of the Gordon data-intensive supercomputer, which was                             Netw., vol. 24, no. 5, pp. 2969–2982, Oct. 2016.
+                                                                                 [29] Q. Li, X. Zhang, X. Zhang, and P. Su, “Invalidating idealized BGP secu-
+supported in part by a grant from the U.S. National Science                           rity proposals and countermeasures,” IEEE Trans. Dependable Secure
+Foundation.                                                                           Comput., vol. 12, no. 3, pp. 298–311, May/Jun. 2015.
+                                                                                 [30] Z. Zhang, Y. Zhang, Y. C. Hu, Z. M. Mao, and R. Bush, “iSPY: Detecting
+                                                                                      IP prefix hijacking on my own,” ACM SIGCOMM Comput. Commun.
+                             R EFERENCES                                              Rev., vol. 38, no. 4, pp. 327–338, 2008.
+                                                                                 [31] A. Pilosov and T. Kapela. (2008). Stealing the Internet: An Internet-
+ [1] S. Hares, Y. Rekhter, and T. Li, A Border Gateway Protocol 4 (BGP-4),            Scale Man in the Middle Attack. [Online]. Available: http://www.defcon.
+     document RFC 4271, 2006.                                                         org/images/defcon-16/dc16-presentations/defcon-16-pilosov-kapela.pdf
+ [2] YouTube Hijacking: A RIPE NCC RIS Case Study. Accessed: Aug. 2018.          [32] NANOG Mailing List Archives. (Oct. 2016). Another Day, Another
+     [Online]. Available: http://www.ripe.net/publications/news/industry-             Illicit SQUAT. [Online]. Available: seclists.org/nanog/2016/Oct/578
+     developments/youtube-hijacking-aripe-ncc-ris-case-study                     [33] (Mar. 2008). YouTube Hijacking: A RIPE NCC RIS Case Study. [Online].
+ [3] Chinese ISP Hijacks the Internet. Accessed: Aug. 2018. [Online]. Avail-          Available:        http://www.ripe.net/internet-coordination/news/industry
+     able: http://www.bgpmon.net/chinese-isp-hijacked-10-of-the-internet/             -developments/youtube-hijacking-a-ripe-ncc-ris-case-study
+ [4] Hacker Redirects Traffic From 19 Internet Providers to Steal Bitcoins.      [34] BGPmon (Colorado State University). Accessed: Aug. 2018. [Online].
+     Accessed: Aug. 2018. [Online]. Available: http://www.wired.com/2014/             Available: http://www.bgpmon.io
+     08/isp-bitcoin-theft/                                                       [35] RIPE Network Coordination Center (NCC). Routing Informa-
+ [5] A. Ramachandran and N. Feamster, “Understanding the network-level                tion Service (RIS). Accessed: Aug. 2018. [Online]. Available:
+     behavior of spammers,” ACM SIGCOMM Comput. Commun. Rev.,                         http://www.ripe.net/data-tools/stats/ris/routing-information-service
+     vol. 36, no. 4, pp. 291–302, 2006.                                          [36] RIPE NCC. RIPEstat. Accessed: Aug. 2018. [Online]. Available:
+ [6] P.-A. Vervier, O. Thonnard, and M. Dacier, “Mind your blocks: On the             stat.ripe.net/
+     stealthiness of malicious BGP hijacks,” in Proc. NDSS, 2015.                [37] C. Orsini, A. King, D. Giordano, V. Giotsas, and A. Dainotti,
+ [7] Russian-Controlled Telecom Hijacks Financial Services’ Internet Traffic.         “BGPStream: A software framework for live and historical BGP data
+     Accessed: Aug. 2018. [Online]. Available: https://arstechnica.com/               analysis,” in Proc. ACM IMC, 2016, pp. 429–444.
+     security/2017/04/russian-controlled-telecom-hijacks-financial-services-     [38] BGPS Tream. Accessed: Aug. 2018. [Online]. Available: bgp-
+     internet-traffic/                                                                stream.caida.org/
+ [8] Iran Leaks Censorship via BGP Hijacks. Accessed: Aug. 2018. [Online].       [39] (May 2017). Ripe NCC Global Technical Services Update, Ripe 74.
+     Available: http://dyn.com/blog/iran-leaks-censorship-via-bgp-hijacks/            [Online]. Available: labs.ripe.net/Members/kranjbar/ripe-ncc-technical-
+ [9] NANOG Mailing List Archives. (Sep. 2016). Defensive, BGP hijacking?              services-2017-part-three-focus-on-tools
+     [Online]. Available: http://seclists.org/nanog/2016/Sep/122                 [40] J. Scudder, R. Fernando, and S. Stuart, BGP Monitoring Protocol (BMP),
+[10] S. Kent, C. Lynn, and K. Seo, “Secure border gateway proto-                      document RFC 7854, 2016.
+     col (S-BGP),” IEEE J. Sel. Areas Commun., vol. 18, no. 4, pp. 582–592,      [41] CAIDA. BGPStream V2 Beta. Accessed: Aug. 2018. [Online]. Available:
+     Apr. 2000.                                                                       bgpstream.caida.org/v2-beta
+[11] L. Subramanian, V. Roth, I. Stoica, S. Shenker, and R. H. Katz, “Listen     [42] P. Gill, M. Schapira, and S. Goldberg, “Let the market drive deployment:
+     and whisper: Security mechanisms for BGP,” in Proc. NSDI, 2004,                  A strategy for transitioning to BGP security,” ACM SIGCOMM Comput.
+     pp. 1–14.                                                                        Commun. Rev., vol. 41, no. 4, pp. 14–25, Aug. 2011.
+[12] M. Lepinski, BGPSEC Protocol Specification, document RFC 8205,              [43] S. Goldberg, M. Schapira, P. Hummon, and J. Rexford, “How secure
+     2015.                                                                            are secure interdomain routing protocols?” Comput. Netw., vol. 70,
+[13] M. Lepinski, R. Barnes, and S. Kent, An Infrastructure to Support Secure         pp. 260–287, Sep. 2014.
+     Internet Routing, document RFC 6480, 2012.                                  [44] A. Cohen, Y. Gilad, A. Herzberg, and M. Schapira, “Jumpstarting BGP
+[14] J. Karlin, S. Forrest, and J. Rexford, “Pretty good BGP: Improving               security with path-end validation,” in Proc. ACM SIGCOMM, 2016,
+     BGP by cautiously adopting routes,” in Proc. IEEE ICNP, Nov. 2006,               pp. 342–355.
+     pp. 290–299.                                                                [45] Y. Gilad, A. Cohen, A. Herzberg, M. Schapira, and H. Shulman, “Are we
+[15] P. Sermpezis, V. Kotronis, A. Dainotti, and X. Dimitropoulos, “A survey          there yet? On RPKI’s deployment and security,” in Proc. NDSS, 2016,
+     among network operators on BGP prefix hijacking,” ACM SIGCOMM                    pp. 1–15.
+     Comput. Commun. Rev., vol. 48, no. 1, pp. 64–69, 2018.                      [46] (Nov. 2016). The CAIDA AS Relationships Dataset. [Online]. Available:
+[16] S. Matsumoto, R. M. Reischuk, P. Szalachowski, T. H.-J. Kim, and                 data.caida.org/datasets/as-relationships/
+     A. Perrig, “Authentication challenges in a global environment,” ACM         [47] L. Gao and J. Rexford, “Stable Internet routing without global coordi-
+     Trans. Privacy Secur., vol. 20, Feb. 2017, Art. no. 1.                           nation,” IEEE/ACM Trans. Netw., vol. 9, no. 6, pp. 681–692, Dec. 2001.
+[17] R. Lychev, S. Goldberg, and M. Schapira, “BGP security in partial           [48] M. Luckie, B. Huffaker, A. Dhamdhere, V. Giotsas, and K. Claffy,
+     deployment: Is the juice worth the squeeze?” in Proc. ACM SIGCOMM,               “AS relationships, customer cones, and validation,” in Proc. ACM IMC,
+     2013, pp. 171–182.                                                               2013, pp. 243–256.
+
+      Authorized licensed use limited to: University of New Brunswick. Downloaded on March 08,2026 at 02:38:18 UTC from IEEE Xplore. Restrictions apply.
+2486                                                                              IEEE/ACM TRANSACTIONS ON NETWORKING, VOL. 26, NO. 6, DECEMBER 2018
+
+
+
+[49] V. Giotsas, S. Zhou, M. Luckie, and K. Claffy, “Inferring multilateral                                   Vasileios Kotronis received the Diploma degree
+     peering,” in Proc. ACM CoNEXT, 2013, pp. 247–258.                                                        in electrical and computer engineering from the
+[50] M. Lad, R. Oliveira, B. Zhang, and L. Zhang, “Understanding resiliency                                   National Technical University of Athens, Greece,
+     of Internet topology against prefix hijack attacks,” in Proc. IEEE/IFIP                                  and the Ph.D. degree in information technol-
+     Dependable Syst. Netw., Jun. 2007, pp. 368–377.                                                          ogy and electrical engineering from ETH Zurich,
+[51] H. Ballani, P. Francis, and X. Zhang, “A study of prefix hijacking and                                   Switzerland. He is currently a Post-Doctoral
+     interception in the Internet,” ACM SIGCOMM Comput. Commun. Rev.,                                         Researcher with FORTH, Greece, where he is
+     vol. 37, no. 4, pp. 265–276, 2007.                                                                       involved in the EU ERC-funded NetVolution Project
+[52] T. Qiu et al., “Locating prefix hijackers using LOCK,” in Proc. USENIX                                   on improving inter-domain routing, as well as
+     Secur. Symp., 2009, pp. 135–150.                                                                         designing and developing automatic and real-time
+[53] CAIDA. CAIDA BGP Hackathon 2016. Accessed: Aug. 2018. [Online].                                          detection and mitigation system as a software. His
+     Available: http://www.caida.org/workshops/bgp-hackathon/1602/index.            main research interests include Internet routing, software-defined networking,
+     xml                                                                            Internet measurements, and network security and engineering.
+[54] Exa-Networks. ExaBGP: The BGP Swiss Army Knife of Network-
+     ing. Accessed: Aug. 2018. [Online]. Available: github.com/Exa-
+                                                                                                             Petros Gigis received the B.Sc. degree and the M.Sc.
+     Networks/exabgp
+[55] J. Schlamp, G. Carle, and E. W. Biersack, “A forensic case study on                                     degree in computer science from the University of
+     as hijacking: The attacker’s perspective,” ACM SIGCOMM Comput.                                          Crete, Greece. He is currently a Research and Devel-
+     Commun. Rev., vol. 43, no. 2, pp. 5–12, 2013.                                                           opment Engineer with the Institute of Computer
+[56] J. Qiu, L. Gao, S. Ranjan, and A. Nucci, “Detecting bogus BGP                                           Science, FORTH, Greece. He is highly involved in
+     route information: Going beyond prefix hijacking,” in Proc. IEEE                                        the development of automatic and real-time detec-
+     SecureComm, Sep. 2007, pp. 381–390.                                                                     tion and mitigation system as a software. His main
+[57] R. Anwar et al., “Investigating interdomain routing policies in the wild,”                              research interests include Internet routing, Internet
+     in Proc. ACM IMC, 2015, pp. 71–77.                                                                      measurements, software-defined networks, and cloud
+[58] K. Chen et al., “Where the sidewalk ends: Extending the Internet AS                                     technologies.
+     graph using traceroutes from P2P users,” in Proc. ACM CoNEXT, 2009,
+     pp. 217–228.
+[59] G. Huston. (2017). BGP in 2016, ISP Column. [Online]. Available:                                       Xenofontas Dimitropoulos received the Ph.D.
+     http://www.ipaddressnews.com/wp-content/uploads/2017/02/bgp2016.                                       degree from the Georgia Institute of Technology
+     pdf                                                                                                    in 2006. He was with IBM Research for two
+[60] NANOG Mailing List Archives. (Feb. 2017). BGP IP Prefix Hijack                                         years and with ETH Zurich for five years as a
+     Detection Times. [Online]. Available: seclists.org/nanog/2017/Feb/293                                  Senior Researcher and a Lecturer. He is currently
+[61] R. Bush, O. Maennel, M. Roughan, and S. Uhlig, “Internet optometry:                                    an Assistant Professor with the University of Crete
+     Assessing the broken glasses in Internet reachability,” in Proc. ACM                                   and an Affiliated Researcher with the Foundation
+     IMC, 2009, pp. 242–253.                                                                                for Research and Technology—Hellas, where he
+[62] Arbor. Worldwide Infrastructure Security Report. Accessed:                                             leads the Internet Security, Privacy, and Intelligence
+     Aug. 2018. [Online]. Available: http://www.arbornetworks.com/images/                                   Research Group. His research focuses on Inter-
+     documents/WISR2016_EN_Web.pdf                                                                          net measurements and Internet routing. He was a
+[63] Sprint. (2018). Sprint Global MPLS VPN Product Annex. [Online].
+                                                                                    recipient of two best paper awards. He received two European Research
+     Available:       http://www.sprint.com/business/resources/ratesandterms/
+                                                                                    Council grants, as well as grants from the Fulbright Institute and the
+     Sprint_Global_MPLS_VPN_Product_Annex.pdf
+[64] M. Strong. (2016). Think Global, Peer Local. Peer With CloudFlare at           Marie Sklodowska-Curie Actions. He served for the program committees of
+     100 Internet Exchange Points. [Online]. Available: blog.cloudflare.com/        conferences such as the ACM SIGCOMM.
+     think-global-peer-local-peer-with-cloudflare-at-100-internet-exchange-
+     points/                                                                                                 Danilo Cicalese received the M.Sc. degree from
+[65] AS-Rank, CAIDA. Accessed: Aug. 2018. [Online]. Available: http://as-                                    Universita Federico II, Naples, Italy, in 2014, and
+     rank.caida.org                                                                                          the Ph.D. degree from Telecom ParisTech in 2018.
+[66] B. Schlinker, K. Zarifis, I. Cunha, N. Feamster, and E. Katz-Bassett,                                   He was a Visiting Researcher with CAIDA, Univer-
+     “PEERING: An AS for Us,” in Proc. ACM HotNets, 2014, p. 18.                                             sity of California at San Diego, in 2017. He is cur-
+[67] The PEERING Testbed. Accessed: Apr. 2018. [Online]. Available: peer-                                    rently a Senior Fellow with CERN in collaboration
+     ing.usc.edu                                                                                             with INTEL, where he is involved in data acquisition
+[68] S. Goldberg, “Why is it taking so long to secure Internet routing?”                                     systems and network monitoring.
+     Commun. ACM, vol. 57, no. 10, pp. 56–63, 2014.
+[69] NIST. (2017). RPKI Monitor. [Online]. Available: http://rpki-
+     monitor.antd.nist.gov/
+[70] M. Wählisch et al., “RiPKI: The tragic story of RPKI deployment in                                      Alistair King received the master’s degree in sci-
+     the Web ecosystem,” in Proc. ACM HotNets, 2015, Art. no. 11.                                            ence from The University of Waikato, New Zealand,
+[71] Z. Zhang, Y. Zhang, Y. C. Hu, and Z. M. Mao, “Practical defenses
+                                                                                                             in 2010. He is currently an Internet Data Scientist
+     against BGP prefix hijacking,” in Proc. ACM CoNEXT, 2007, Art. no. 3.
+[72] T. Qiu, L. Ji, D. Pei, J. Wang, and J. Xu, “TowerDefense: Deployment                                    with the Center for Applied Internet Data Analysis,
+     strategies for battling against IP prefix hijacking,” in Proc. IEEE ICNP,                               SDSC, UC San Diego. His current interests are
+     Oct. 2010, pp. 134–143.                                                                                 centered around software and infrastructure devel-
+                                                                                                             opment for efficient, real-time analysis of large-scale
+                                                                                                             Internet measurement datasets.
+
+
+
+                                                                                                           Alberto Dainotti received the Ph.D. degree in com-
+                                                                                                           puter engineering and systems from the University of
+                         Pavlos Sermpezis received the Diploma degree                                      Napoli “Federico II,” Italy, in 2008. He is currently
+                         in electrical and computer engineering from the                                   a Research Scientist with the Center for Applied
+                         Aristotle University of Thessaloniki, Greece, and                                 Internet Data Analysis, University of California at
+                         the Ph.D. degree in computer science and networks                                 San Diego, USA. His main research interests are
+                         from EURECOM, Sophia Antipolis, France. He is                                     in the fields of Internet measurement and Internet
+                         currently a Post-Doctoral Researcher with FORTH,                                  security, with a focus on the detection and analysis of
+                         Greece. His main research interests are in model-                                 large-scale Internet events, such as botnet activities,
+                         ing and performance analysis for communication                                    Internet blackouts, and BGP prefix hijacking attacks.
+                         networks and protocols, and Internet routing.                                     While most of his work is basic research, he also
+                                                                                    enjoys building running systems (such as IODA) and software tools and
+                                                                                    APIs (BGPStream and TIE).
+
+       Authorized licensed use limited to: University of New Brunswick. Downloaded on March 08,2026 at 02:38:18 UTC from IEEE Xplore. Restrictions apply.
+
