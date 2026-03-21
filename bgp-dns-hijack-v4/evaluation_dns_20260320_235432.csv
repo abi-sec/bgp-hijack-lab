@@ -1,0 +1,8 @@
+phase,test,result,expected,pass
+baseline,direct_dns,13.0.0.100,13.0.0.100,PASS
+baseline,bgp_path_r6,"500 200 300",contains_300,PASS
+attack,convergence_time,11s,<15s,INFO
+attack,dns_poisoned,14.0.0.66,14.0.0.66,PASS
+attack,cached_poison,14.0.0.66,14.0.0.66,INFO
+post_attack,direct_dns_restored,13.0.0.100,13.0.0.100,PASS
+post_attack,cache_still_poisoned,14.0.0.66,14.0.0.66,PASS

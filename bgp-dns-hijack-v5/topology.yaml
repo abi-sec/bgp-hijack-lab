@@ -1,0 +1,81 @@
+name: bgp-dns-hijack
+
+topology:
+  nodes:
+    r1:
+      kind: linux
+      image: quay.io/frrouting/frr:9.1.0
+      binds:
+        - configs/r1/frr.conf:/etc/frr/frr.conf
+        - configs/r1/daemons:/etc/frr/daemons
+        - configs/r1/vtysh.conf:/etc/frr/vtysh.conf
+    r2:
+      kind: linux
+      image: quay.io/frrouting/frr:9.1.0
+      binds:
+        - configs/r2/frr.conf:/etc/frr/frr.conf
+        - configs/r2/daemons:/etc/frr/daemons
+        - configs/r2/vtysh.conf:/etc/frr/vtysh.conf
+    r3:
+      kind: linux
+      image: quay.io/frrouting/frr:9.1.0
+      binds:
+        - configs/r3/frr.conf:/etc/frr/frr.conf
+        - configs/r3/daemons:/etc/frr/daemons
+        - configs/r3/vtysh.conf:/etc/frr/vtysh.conf
+    r4:
+      kind: linux
+      image: quay.io/frrouting/frr:9.1.0
+      binds:
+        - configs/r4/frr.conf:/etc/frr/frr.conf
+        - configs/r4/daemons:/etc/frr/daemons
+        - configs/r4/vtysh.conf:/etc/frr/vtysh.conf
+    r5:
+      kind: linux
+      image: quay.io/frrouting/frr:9.1.0
+      binds:
+        - configs/r5/frr.conf:/etc/frr/frr.conf
+        - configs/r5/daemons:/etc/frr/daemons
+        - configs/r5/vtysh.conf:/etc/frr/vtysh.conf
+    r6:
+      kind: linux
+      image: quay.io/frrouting/frr:9.1.0
+      binds:
+        - configs/r6/frr.conf:/etc/frr/frr.conf
+        - configs/r6/daemons:/etc/frr/daemons
+        - configs/r6/vtysh.conf:/etc/frr/vtysh.conf
+
+    gortr:
+      kind: linux
+      image: rpki/stayrtr:latest
+      binds:
+        - configs/rpki/vrps.json:/etc/stayrtr/vrps.json
+
+    dns-server:
+      kind: linux
+      image: dns-lab:latest
+      binds:
+        - configs/dns/legit-dnsmasq.conf:/etc/dnsmasq.conf
+
+    fake-dns:
+      kind: linux
+      image: dns-lab:latest
+      binds:
+        - configs/dns/fake-dnsmasq.conf:/etc/dnsmasq.conf
+
+    client:
+      kind: linux
+      image: dns-lab:latest
+      binds:
+        - configs/dns/unbound.conf:/etc/unbound/unbound.conf
+
+  links:
+    - endpoints: ["r1:eth1", "r2:eth1"]
+    - endpoints: ["r2:eth2", "r3:eth1"]
+    - endpoints: ["r1:eth2", "r4:eth1"]
+    - endpoints: ["r2:eth3", "r5:eth1"]
+    - endpoints: ["r5:eth2", "r6:eth1"]
+    - endpoints: ["r3:eth2", "dns-server:eth1"]
+    - endpoints: ["r4:eth2", "fake-dns:eth1"]
+    - endpoints: ["r6:eth2", "client:eth1"]
+    - endpoints: ["r1:eth3", "gortr:eth1"]

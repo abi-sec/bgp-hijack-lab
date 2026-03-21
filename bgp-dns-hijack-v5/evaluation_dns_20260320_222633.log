@@ -1,0 +1,37 @@
+=== BGP DNS Hijack Chain Evaluation ===
+Started: Fri Mar 20 10:26:33 PM UTC 2026
+--- Phase 1: Baseline ---
+Baseline DNS query: 13.0.0.100
+Baseline BGP path from R6: 500 200 300
+
+--- Phase 2: Sub-prefix Hijack ---
+Hijack announced, waiting 10s...
+Convergence time: 10s
+
+--- Phase 3: DNS Poisoning Check ---
+DNS during hijack (direct): 14.0.0.66
+  -> DNS POISONED SUCCESSFULLY
+DNS during hijack (cached): 14.0.0.66
+Traceroute during hijack:  6  13.0.0.50  3.984 ms
+
+--- Phase 4: Withdraw Hijack ---
+Hijack withdrawn, waiting 10s...
+
+--- Phase 5: Post-Attack Cache Persistence ---
+Post-attack DNS (direct): 13.0.0.100
+Post-attack DNS (cached): 14.0.0.66
+  -> CACHE STILL POISONED after hijack withdrawal!
+
+=== Summary ===
+Baseline DNS: 13.0.0.100 (expected: 13.0.0.100)
+Baseline BGP path check: PASS (expected to include AS300)
+During hijack: 14.0.0.66 (expected: 14.0.0.66 = attacker)
+Post-attack direct: 13.0.0.100 (expected: 13.0.0.100 = restored)
+Post-attack cached: 14.0.0.66 (expected: 14.0.0.66 = still poisoned)
+
+Attack duration: ~10s + hijack window
+Poison persistence: up to 180s per attacker TTL
+
+Results saved to: evaluation_dns_20260320_222633.csv
+Full log saved to: evaluation_dns_20260320_222633.log
+Completed: Fri Mar 20 10:26:58 PM UTC 2026

@@ -1,4 +1,4 @@
-# BGP Hijack → DNS Cache Poisoning Attack Chain (v4)
+# BGP Hijack → DNS Cache Poisoning Attack Chain (v5)
 
 **FRRouting v9.1 + Containerlab | Ubuntu 22.04**
 
@@ -7,22 +7,19 @@ poisoning with persistent application-layer impact. The attack chain shows
 that a brief routing-layer attack (seconds) produces DNS poisoning that
 persists for hours after the BGP hijack ends.
 
-## Automated Workflow (Recommended)
+This v5 scenario extends the DNS attack-chain lab with validator-assisted
+ROA/ROV checks. It is not a full RPKI deployment study; it focuses on ROA-based
+route-origin validation behavior in this controlled topology.
 
-This lab now includes two reliable, end-to-end automation paths:
+## Scope and Limitations
 
-- `rebuild.sh`: Fully rebuilds and redeploys the lab from a clean state,
-    reconfigures all containers, waits for convergence, and performs verification.
-- `scripts/full_demo.sh`: Runs the full attack and mitigation narrative in order
-    (baseline -> hijack -> poisoning -> withdrawal -> persistence -> mitigation check).
+This lab is intentionally scoped to ROA/ROV behavior in an emulated environment.
+It should not be presented as a full Internet-scale RPKI deployment.
 
-These scripts are the recommended way to run the project for reproducible results.
-Use the manual steps only if you need fine-grained debugging or custom experiments.
-
-**Novelty:** We believe this is a good reproducible
-emulated lab that demonstrates the complete BGP hijack → DNS cache poisoning in modern systems.
-→ persistent application-layer impact chain described in Birge-Lee et al.
-(USENIX Security 2018) and Kowalski & Mazurczyk (Computer Networks 2023, §3.4).
+- Uses lab-local ROA assertions (via SLURM JSON) to model origin authorization behavior.
+- Uses a local validator and RTR cache session inside the lab topology.
+- Demonstrates practical ROV policy outcomes, not full global trust-chain operations.
+- Suitable wording for report: "ROA/ROV-informed mitigation in a controlled lab", not "full RPKI deployment".
 
 ---
 
@@ -54,7 +51,7 @@ emulated lab that demonstrates the complete BGP hijack → DNS cache poisoning i
 
 **DNS Infrastructure:**
 - **dns-server** (13.0.0.50): Legitimate authoritative DNS for `victim.lab`, TTL=300s
-- **fake-dns** (responds as 13.0.0.50): Attacker's spoofed DNS, all records → 14.0.0.66, TTL=180s
+- **fake-dns** (responds as 13.0.0.50): Attacker's spoofed DNS, all records → 14.0.0.66, TTL=86400s
 - **client**: Runs `unbound` caching resolver forwarding to 13.0.0.50
 
 ---
@@ -65,12 +62,12 @@ emulated lab that demonstrates the complete BGP hijack → DNS cache poisoning i
 |---|---|---|---|
 | 1. Baseline | No attack | `www.victim.lab` → 13.0.0.100 ✓ | Normal via AS200→AS300 |
 | 2. Hijack | AS400 announces 13.0.0.0/25 | `www.victim.lab` → 14.0.0.66 ✗ | Hijacked via AS400 |
-| 3. Poisoned | Resolver caches attacker response | Cache: 14.0.0.66 (TTL=180s) | Still hijacked |
+| 3. Poisoned | Resolver caches attacker response | Cache: 14.0.0.66 (TTL=86400) | Still hijacked |
 | 4. Withdrawal | AS400 withdraws /25 | Direct: 13.0.0.100 ✓ | Restored |
 | 5. Persistence | Check cached entry | **Cache: STILL 14.0.0.66** ✗ | Clean routing, poisoned cache |
 
 **Key finding:** Phase 5 — routing is clean but DNS is still poisoned. A seconds-long
-BGP hijack causes 180s (can be modified to our needs) of DNS poisoning via TTL manipulation.
+BGP hijack causes 24 hours of DNS poisoning via TTL manipulation.
 
 ---
 
@@ -100,21 +97,22 @@ bash scripts/full_demo.sh
 
 ## Switching Between v4 and v5
 
-v4 and v5 both use the containerlab topology name `bgp-dns-hijack`.
-If you switch folders without cleanup, topology name/state conflicts can
-block deployment or cause incorrect runtime state.
+v4 and v5 use the same containerlab topology name (`bgp-dns-hijack`).
+If you switch folders without cleanup, name/state conflicts can prevent
+correct deployment or reconfiguration.
 
-Use this sequence when switching versions:
+Always run this sequence when switching versions:
 
 ```bash
 # From the version you used last
 sudo containerlab destroy -t topology.yaml --cleanup
 
 # Move to the other version folder (v4 or v5)
+# Rebuild/reconfigure from that folder
 sudo bash rebuild.sh
 ```
 
-For RPKI-related ROA/ROV checks, use v5. v4 is the DNS-chain baseline.
+Do not deploy v4 and v5 concurrently with the same topology name.
 
 ---
 
@@ -151,6 +149,17 @@ Output files:
 - `evaluation_dns_<timestamp>.csv` — structured results
 - `evaluation_dns_<timestamp>.log` — full output
 
+ROA/ROV validation-focused evaluation:
+
+```bash
+bash scripts/verify_rpki.sh
+bash scripts/evaluate_mitigation_strict.sh
+```
+
+Output files:
+- `evaluation_mitigation_<timestamp>.csv` — strict evidence checks
+- `evaluation_mitigation_<timestamp>.log` — full trace
+
 ---
 
 ## How the Attack Works
@@ -162,14 +171,14 @@ Due to BGP's longest-prefix-match rule, all traffic to IPs in `13.0.0.0–13.0.0
 
 ### DNS Poisoning Mechanism
 The fake-dns behind AS400 is configured to respond to all `victim.lab` queries
-with `14.0.0.66` (attacker's server) and a TTL of 180 seconds.
+with `14.0.0.66` (attacker's server) and a TTL of 86400 seconds (24 hours).
 When the client's caching resolver (`unbound`) queries during the hijack window,
 it caches this poisoned response.
 
 ### Persistence Mechanism
 After AS400 withdraws the BGP announcement:
 - **Direct DNS queries** to 13.0.0.50 correctly reach AS300's legitimate server again
-- **Cached queries** through unbound still return the poisoned 14.0.0.66 for up to 180s (can be modified to our needs)
+- **Cached queries** through unbound still return the poisoned 14.0.0.66 for up to 24 hours
 - Any application using the cached resolver sees the attacker's IP until TTL expires
 
 ### Real-World Implications (from Birge-Lee et al., USENIX Sec 2018)

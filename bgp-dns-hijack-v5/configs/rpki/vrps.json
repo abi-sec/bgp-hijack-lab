@@ -1,0 +1,10 @@
+{
+  "roas": [
+    {"prefix": "11.0.0.0/24", "maxLength": 24, "asn": 100},
+    {"prefix": "12.0.0.0/24", "maxLength": 24, "asn": 200},
+    {"prefix": "13.0.0.0/24", "maxLength": 24, "asn": 300},
+    {"prefix": "14.0.0.0/24", "maxLength": 24, "asn": 400},
+    {"prefix": "15.0.0.0/24", "maxLength": 24, "asn": 500},
+    {"prefix": "16.0.0.0/24", "maxLength": 24, "asn": 600}
+  ]
+}

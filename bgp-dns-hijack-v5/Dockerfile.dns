@@ -1,0 +1,3 @@
+FROM alpine:3.18
+RUN apk add --no-cache dnsmasq bind-tools unbound curl iputils-ping traceroute iproute2 tcpdump
+CMD ["sleep", "infinity"]

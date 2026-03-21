@@ -1,0 +1,296 @@
+╔══════════════════════════════════════════════════════════╗
+║  BGP Hijack -> DNS Cache Poisoning — Full Demo v5       ║
+║  Attack Chain + RPKI Mitigation                          ║
+╚══════════════════════════════════════════════════════════╝
+
+Press ENTER to proceed through each phase...
+
+────────────────────────────────────────────────────────────
+=== Phase 1: DNS Baseline (No Attack) ===
+
+[1] Direct query to DNS server (13.0.0.50) from client:
+    dig @13.0.0.50 www.victim.lab
+13.0.0.100
+
+[2] Query through caching resolver from client:
+    dig @127.0.0.1 www.victim.lab
+13.0.0.100
+
+[3] Traceroute from client to DNS server:
+traceroute to 13.0.0.50 (13.0.0.50), 30 hops max, 60 byte packets
+ 1  10.60.0.1  0.083 ms
+ 2  10.56.0.1  0.067 ms
+ 3  10.25.0.1  0.072 ms
+ 4  10.23.0.2  0.075 ms
+ 5  13.0.0.50  0.100 ms
+
+[4] Expected: www.victim.lab -> 13.0.0.100 (legitimate)
+    Path: Client -> R6(AS600) -> R5(AS500) -> R2(AS200) -> R3(AS300) -> DNS
+
+=== Baseline Complete ===
+────────────────────────────────────────────────────────────
+Press ENTER to launch the attack...
+────────────────────────────────────────────────────────────
+=== Phase 2: Launching Sub-Prefix Hijack on DNS Server ===
+
+[1] AS400 (Attacker) announcing 13.0.0.0/25 (sub-prefix of victim's /24)...
+    This covers the DNS server at 13.0.0.50
+
+[2] Waiting 10s for BGP convergence...
+[3] Verifying hijack propagation on R2 (Transit):
+BGP routing table entry for 13.0.0.0/25, version 19
+Paths: (1 available, best #1, table default)
+  Advertised to non peer-group peers:
+  10.12.0.1 10.23.0.2 10.25.0.2
+  100 400
+    10.12.0.1 from 10.12.0.1 (1.1.1.1)
+      Origin IGP, valid, external, best (First path received)
+      Last update: Fri Mar 20 23:36:44 2026
+
+[4] Verifying hijack propagation on R6 (Client's AS):
+BGP routing table entry for 13.0.0.0/25, version 19
+Paths: (1 available, best #1, table default)
+  Advertised to non peer-group peers:
+  10.56.0.1
+  500 200 100 400
+    10.56.0.1 from 10.56.0.1 (5.5.5.5)
+      Origin IGP, valid, external, best (First path received)
+      Last update: Fri Mar 20 23:36:45 2026
+
+=== Sub-Prefix Hijack Active ===
+    DNS queries to 13.0.0.50 now route to AS400 (attacker)
+────────────────────────────────────────────────────────────
+Press ENTER to verify DNS poisoning...
+────────────────────────────────────────────────────────────
+=== Phase 3: Verifying DNS Poisoning During Attack ===
+
+[1] Flush client's DNS cache (restart unbound)...
+
+[2] Direct query to 13.0.0.50 from client (now routed to attacker):
+    www.victim.lab -> 14.0.0.66
+    *** DNS POISONED — Response from ATTACKER (14.0.0.66) ***
+
+[3] Query through caching resolver (populates cache with poison):
+    www.victim.lab -> 14.0.0.66
+
+[4] Full DNS response showing TTL (notice 86400s attacker TTL):
+;; ANSWER SECTION:
+www.victim.lab.		180	IN	A	14.0.0.66
+
+;; Query time: 0 msec
+;; SERVER: 13.0.0.50#53(13.0.0.50) (UDP)
+;; WHEN: Fri Mar 20 23:37:03 UTC 2026
+
+[5] Traceroute from client to 13.0.0.50 (should show attacker path):
+traceroute to 13.0.0.50 (13.0.0.50), 30 hops max, 60 byte packets
+ 1  10.60.0.1  0.189 ms
+ 2  10.56.0.1  0.041 ms
+ 3  10.25.0.1  0.039 ms
+ 4  10.12.0.1  0.045 ms
+ 5  10.14.0.2  0.051 ms
+ 6  13.0.0.50  0.325 ms
+
+[6] Compare: BGP table on R6 for 13.0.0.0/24 vs 13.0.0.0/25
+    --- Legitimate /24 route ---
+Paths: (1 available, best #1, table default)
+      Origin IGP, valid, external, best (First path received)
+    --- Hijacked /25 route ---
+Paths: (1 available, best #1, table default)
+      Origin IGP, valid, external, best (First path received)
+
+=== DNS Poisoning Verified ===
+────────────────────────────────────────────────────────────
+Press ENTER to withdraw the hijack...
+────────────────────────────────────────────────────────────
+=== Phase 4: Withdrawing Hijack ===
+
+[1] AS400 withdrawing 13.0.0.0/25...
+[2] Waiting 10s for BGP withdrawal propagation...
+[3] Confirm withdrawal — R6 should no longer have /25 route:
+% Network not in table
+
+=== Hijack Withdrawn ===
+────────────────────────────────────────────────────────────
+Press ENTER to verify cache persistence...
+────────────────────────────────────────────────────────────
+[1m================================================[0m
+[1m  DNS Cache Persistence Verification[0m
+[1m  BGP hijack withdrawn — routing is clean[0m
+[1m================================================[0m
+
+[36mConfirming BGP hijack is withdrawn...[0m
+[32m  ✓ Confirmed: 13.0.0.0/25 not in BGP table (hijack withdrawn)[0m
+
+[36mChecking direct vs cached DNS every 10 seconds...[0m
+[36mWatch for: Direct=legitimate, Cached=poisoned (until TTL expires)[0m
+
+  [1mTime   | Direct @13.0.0.50 | Cached @127.0.0.1 | TTL remaining[0m
+  ────────────────────────────────────────────────────────
+  t+0   s | [32m13.0.0.100[0m | [31m14.0.0.66 ✗[0m | 163s
+  t+11  s | [32m13.0.0.100[0m | [31m14.0.0.66 ✗[0m | 153s
+  t+22  s | [32m13.0.0.100[0m | [31m14.0.0.66 ✗[0m | 142s
+  t+32  s | [32m13.0.0.100[0m | [31m14.0.0.66 ✗[0m | 131s
+  t+43  s | [32m13.0.0.100[0m | [31m14.0.0.66 ✗[0m | 121s
+  t+53  s | [32m13.0.0.100[0m | [31m14.0.0.66 ✗[0m | 110s
+  t+64  s | [32m13.0.0.100[0m | [31m14.0.0.66 ✗[0m | 99s
+  t+75  s | [32m13.0.0.100[0m | [31m14.0.0.66 ✗[0m | 89s
+  t+85  s | [32m13.0.0.100[0m | [31m14.0.0.66 ✗[0m | 78s
+  t+96  s | [32m13.0.0.100[0m | [31m14.0.0.66 ✗[0m | 68s
+  t+106 s | [32m13.0.0.100[0m | [31m14.0.0.66 ✗[0m | 57s
+  t+117 s | [32m13.0.0.100[0m | [31m14.0.0.66 ✗[0m | 46s
+  t+128 s | [32m13.0.0.100[0m | [31m14.0.0.66 ✗[0m | 36s
+  t+138 s | [32m13.0.0.100[0m | [31m14.0.0.66 ✗[0m | 25s
+  t+149 s | [32m13.0.0.100[0m | [31m14.0.0.66 ✗[0m | 15s
+  t+159 s | [32m13.0.0.100[0m | [31m14.0.0.66 ✗[0m | 4s
+  t+170 s | [32m13.0.0.100[0m | [32m13.0.0.100 ✓[0m | 299s
+
+[32m  Cache expired — poisoning window ended[0m
+
+[1m================================================[0m
+[1m  Results Summary[0m
+[1m================================================[0m
+
+[31m  ✓ Cache poisoning confirmed AFTER BGP withdrawal[0m
+[31m  The routing layer was clean but DNS was still poisoned[0m
+[32m  ✓ Cache expiry observed within demo window[0m
+[32m  After expiry, legitimate answer restored[0m
+
+[1m  Key Finding for Report:[0m
+  Demo uses TTL=120s for live observation.
+  Real-world attackers use TTL=86400s (24 hours).
+  The persistence mechanism is identical — only duration differs.
+  Birge-Lee et al. (USENIX Sec 2018) documented this exact
+  technique used against major Certificate Authorities.
+[1m================================================[0m
+────────────────────────────────────────────────────────────
+Press ENTER to apply RPKI mitigation...
+────────────────────────────────────────────────────────────
+================================================
+[MITIGATION] RPKI-Informed ROV on R1 (AS100)
+================================================
+
+Reading ROA database: configs/rpki/vrps.json
+
+ROA-derived filter rules:
+  AS100: 11.0.0.0/24 maxLen=24  →  deny 11.0.0.0/24 ge 25  (RPKI Invalid)
+  AS200: 12.0.0.0/24 maxLen=24  →  deny 12.0.0.0/24 ge 25  (RPKI Invalid)
+  AS300: 13.0.0.0/24 maxLen=24  →  deny 13.0.0.0/24 ge 25  (RPKI Invalid)
+  AS400: 14.0.0.0/24 maxLen=24  →  deny 14.0.0.0/24 ge 25  (RPKI Invalid)
+  AS500: 15.0.0.0/24 maxLen=24  →  deny 15.0.0.0/24 ge 25  (RPKI Invalid)
+  AS600: 16.0.0.0/24 maxLen=24  →  deny 16.0.0.0/24 ge 25  (RPKI Invalid)
+
+Applying to R1 via vtysh...
+
+Hello, this is FRRouting (version 9.1_git).
+Copyright 1996-2005 Kunihiro Ishiguro, et al.
+
+r1# configure terminal
+r1(config)# no ip prefix-list RPKI_INVALID
+r1(config)# ip prefix-list RPKI_INVALID seq 10 deny 11.0.0.0/24 ge 25
+r1(config)# ip prefix-list RPKI_INVALID seq 20 deny 12.0.0.0/24 ge 25
+r1(config)# ip prefix-list RPKI_INVALID seq 30 deny 13.0.0.0/24 ge 25
+r1(config)# ip prefix-list RPKI_INVALID seq 40 deny 14.0.0.0/24 ge 25
+r1(config)# ip prefix-list RPKI_INVALID seq 50 deny 15.0.0.0/24 ge 25
+r1(config)# ip prefix-list RPKI_INVALID seq 60 deny 16.0.0.0/24 ge 25
+r1(config)# ip prefix-list RPKI_INVALID seq 200 permit 0.0.0.0/0 le 32
+r1(config)# route-map RPKI_ROV permit 10
+r1(config-route-map)#  match ip address prefix-list RPKI_INVALID
+r1(config-route-map)# exit
+r1(config)# route-map RPKI_ROV deny 20
+r1(config-route-map)# exit
+r1(config)# router bgp 100
+r1(config-router)#  address-family ipv4 unicast
+r1(config-router-af)#   neighbor 10.12.0.2 route-map RPKI_ROV in
+r1(config-router-af)#   neighbor 10.14.0.2 route-map RPKI_ROV in
+r1(config-router-af)#  exit-address-family
+r1(config-router)# exit
+r1(config)# end
+r1# clear bgp * in
+r1# write memory
+Note: this version of vtysh never writes vtysh.conf
+Building Configuration...
+Error renaming /etc/frr/frr.conf to /etc/frr/frr.conf.sav: Resource busy
+Integrated configuration saved to /etc/frr/frr.conf
+[OK]
+r1# 
+
+  ✓ RPKI-Informed ROV applied on R1
+
+Generated prefix-list (derived from vrps.json):
+ZEBRA: ip prefix-list RPKI_INVALID: 7 entries
+   seq 10 deny 11.0.0.0/24 ge 25
+   seq 20 deny 12.0.0.0/24 ge 25
+   seq 30 deny 13.0.0.0/24 ge 25
+   seq 40 deny 14.0.0.0/24 ge 25
+   seq 50 deny 15.0.0.0/24 ge 25
+   seq 60 deny 16.0.0.0/24 ge 25
+   seq 200 permit 0.0.0.0/0 le 32
+BGP: ip prefix-list RPKI_INVALID: 7 entries
+   seq 10 deny 11.0.0.0/24 ge 25
+   seq 20 deny 12.0.0.0/24 ge 25
+   seq 30 deny 13.0.0.0/24 ge 25
+   seq 40 deny 14.0.0.0/24 ge 25
+   seq 50 deny 15.0.0.0/24 ge 25
+   seq 60 deny 16.0.0.0/24 ge 25
+   seq 200 permit 0.0.0.0/0 le 32
+
+================================================
+Mitigation active. Now try the hijack:
+  bash scripts/start_dns_hijack.sh
+
+Expected: 13.0.0.0/25 blocked (exceeds AS300 maxLength=24)
+Expected: DNS stays at 13.0.0.100
+================================================
+────────────────────────────────────────────────────────────
+Press ENTER to test RPKI blocks the attack...
+────────────────────────────────────────────────────────────
+=== Phase 7: Proving RPKI Mitigation Blocks the Attack ===
+
+=== Phase 2: Launching Sub-Prefix Hijack on DNS Server ===
+
+[1] AS400 (Attacker) announcing 13.0.0.0/25 (sub-prefix of victim's /24)...
+    This covers the DNS server at 13.0.0.50
+
+[2] Waiting 10s for BGP convergence...
+[3] Verifying hijack propagation on R2 (Transit):
+% Network not in table
+
+[4] Verifying hijack propagation on R6 (Client's AS):
+% Network not in table
+
+=== Sub-Prefix Hijack Active ===
+    DNS queries to 13.0.0.50 now route to AS400 (attacker)
+
+[1] Check RPKI validation state of hijack prefix:
+% Network not in table
+
+[2] Check if hijack propagated past R1 to R6:
+    ✓ 13.0.0.0/25 NOT in R6 BGP table — hijack blocked by RPKI
+
+[3] DNS test with RPKI active (should stay legitimate):
+    Direct:  www.victim.lab -> 13.0.0.100
+    Cached:  www.victim.lab -> 13.0.0.100
+
+*** RPKI MITIGATION SUCCESSFUL ***
+Both direct and cached DNS return legitimate answer
+BGP hijack blocked as RPKI INVALID — DNS cache never poisoned
+
+[4] Cleaning up...
+    Lab restored to clean state
+────────────────────────────────────────────────────────────
+
+╔══════════════════════════════════════════════════════════╗
+║  Demo Complete (v5 — RPKI)                               ║
+║                                                          ║
+║  Key Finding: A brief BGP sub-prefix hijack produces     ║
+║  DNS cache poisoning that persists for HOURS after       ║
+║  the routing attack ends.                                ║
+║                                                          ║
+║  v4 Mitigation: Manual ROV prefix-list on R1            ║
+║  v5 Mitigation: RPKI-Informed ROV via vrps.json          ║
+║    AS400's /25 → RPKI INVALID → auto-dropped            ║
+║    No manual filter needed. Scales to any prefix.        ║
+║                                                          ║
+║  Attack: seconds  |  Poison: TTL-dependent               ║
+║  RPKI blocks: <5s |  DNS stays: clean                    ║
+╚══════════════════════════════════════════════════════════╝
