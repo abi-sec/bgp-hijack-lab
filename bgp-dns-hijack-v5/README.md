@@ -7,9 +7,7 @@ poisoning with persistent application-layer impact. The attack chain shows
 that a brief routing-layer attack (seconds) produces DNS poisoning that
 persists for hours after the BGP hijack ends.
 
-This v5 scenario extends the DNS attack-chain lab with validator-assisted
-ROA/ROV checks. It is not a full RPKI deployment study; it focuses on ROA-based
-route-origin validation behavior in this controlled topology.
+This v5 scenario extends the DNS attack-chain lab with validator-assisted ROA/ROV checks. It is not a full RPKI deployment study; it focuses on ROA-based route-origin validation behavior in this controlled topology.
 
 ## Scope and Limitations
 
@@ -22,6 +20,18 @@ It should not be presented as a full Internet-scale RPKI deployment.
 - Suitable wording for report: "ROA/ROV-informed mitigation in a controlled lab", not "full RPKI deployment".
 
 ---
+
+## Automated Workflow (Recommended)
+
+This lab now includes two reliable, end-to-end automation paths:
+
+- `rebuild.sh`: Fully rebuilds and redeploys the lab from a clean state,
+    reconfigures all containers, waits for convergence, and performs verification.
+- `scripts/full_demo.sh`: Runs the full attack and mitigation narrative in order
+    (baseline -> hijack -> poisoning -> withdrawal -> persistence -> mitigation check).
+
+These scripts are the recommended way to run the project for reproducible results.
+Use the manual steps only if you need fine-grained debugging or custom experiments.
 
 ## Topology (6 ASes + 3 Host Containers)
 
