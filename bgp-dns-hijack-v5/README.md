@@ -19,7 +19,6 @@ It should not be presented as a full Internet-scale RPKI deployment.
 - Uses lab-local ROA assertions (via SLURM JSON) to model origin authorization behavior.
 - Uses a local validator and RTR cache session inside the lab topology.
 - Demonstrates practical ROV policy outcomes, not full global trust-chain operations.
-- Suitable wording for report: "ROA/ROV-informed mitigation in a controlled lab", not "full RPKI deployment".
 
 ---
 
